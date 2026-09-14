@@ -8,8 +8,13 @@
  * Search matches catalog rows whose normalized artist+title contain every
  * query token (simple substring bag) — enough for classification fixtures
  * without reimplementing the scorer.
+ *
+ * `resolveListenMedia` returns a track's `previewUrl` as progressive (or HLS
+ * when the URL looks like a playlist) when present on the in-memory catalog.
  */
 
+import type { ListenMedia } from './listen-media';
+import { listenMediaKindFromUrl } from './listen-media';
 import type { SoundCloudIdentity } from './soundcloud-identity';
 import type { SoundCloudGateway } from './soundcloud-gateway';
 import type { SoundCloudTrack } from './soundcloud-track';
@@ -64,6 +69,21 @@ export function createFakeSoundCloudGateway(): FakeSoundCloudGateway {
 				const haystack = `${track.artist} ${track.title}`.toLowerCase();
 				return tokens.every((token) => haystack.includes(token));
 			});
+		},
+
+		async getTrack(trackId) {
+			calls.push('getTrack');
+			return catalog.find((row) => row.id === trackId) ?? null;
+		},
+
+		async resolveListenMedia(trackId): Promise<ListenMedia | null> {
+			calls.push('resolveListenMedia');
+			const track = catalog.find((row) => row.id === trackId);
+			const url = track?.previewUrl;
+			if (!url) {
+				return null;
+			}
+			return { url, kind: listenMediaKindFromUrl(url) };
 		}
 	};
 }

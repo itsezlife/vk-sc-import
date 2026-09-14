@@ -30,5 +30,6 @@ Single-context: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
 
 Before layout, CSS chrome, or components: run the **think** skill and read
 [`.cursor/skills/think/web.md`](.cursor/skills/think/web.md) — **viewport**,
-**extraction ladder**, **lookalike** → ui-kit SoT, page composition. Search
-existing `ui-*` / shell classes before inventing.
+**extraction ladder**, **lookalike**, **journey** / **concern cut**,
+**orchestration** → ui-kit SoT, page composition. Search existing `ui-*` /
+shell classes before inventing.

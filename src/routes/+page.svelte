@@ -11,6 +11,7 @@
 	} from '$lib/i18n/ui.svelte';
 	import type { ImportSessionSummary } from '$lib/import-session/import-session-api';
 	import type { MatchBucketsSummary } from '$lib/import-session/match-record';
+	import MatchResolutionPanel from '$lib/import-session/MatchResolutionPanel.svelte';
 	import type { LibraryRowValidationError, LibraryTrack } from '$lib/import-session/library-track';
 	import type { SourceLibraryFormat } from '$lib/import-session/source-library-ingest';
 	import { emptyStateGuidance } from '$lib/shell/empty-state-guidance';
@@ -18,6 +19,7 @@
 	import { contextMenu } from '$lib/ui/context-menu-action';
 	import type { ContextMenuEntry } from '$lib/ui/context-menu-types';
 	import { onMount } from 'svelte';
+	import { SvelteURLSearchParams } from 'svelte/reactivity';
 
 	/**
 	 * Shell bootstrap: until local SoundCloud + Import Session restores finish,
@@ -66,12 +68,43 @@
 	const matchMessage = $derived(
 		matchNotice ? t(matchNotice.key, matchNotice.params, locale) : null
 	);
+	const matchResolutionKey = $derived(
+		sessionSummary?.matchBuckets
+			? [
+					sessionSummary.trackCount,
+					sessionSummary.matchBuckets.auto,
+					sessionSummary.matchBuckets.accepted,
+					sessionSummary.matchBuckets.ambiguous,
+					sessionSummary.matchBuckets.unresolved
+				].join(':')
+			: null
+	);
 
-	onMount(() => {
-		document.documentElement.lang = locale;
-		applyCallbackErrorFromUrl();
-		void bootstrapShell();
-	});
+	function onLocaleChange(event: Event) {
+		const next = (event.currentTarget as HTMLSelectElement).value as AppLocale;
+		setLocale(next);
+	}
+
+	function trackMenuEntries(): ContextMenuEntry[] {
+		return [
+			{ type: 'item', id: 'copy-artist', label: t('menu.copyArtist') },
+			{ type: 'item', id: 'copy-title', label: t('menu.copyTitle') },
+			{ type: 'separator' },
+			{ type: 'item', id: 'copy-line', label: t('menu.copyLine') }
+		];
+	}
+
+	function onTrackMenuSelect(track: LibraryTrack, id: string) {
+		const text =
+			id === 'copy-artist'
+				? track.artist
+				: id === 'copy-title'
+					? track.title
+					: `${track.artist} — ${track.title}`;
+		void navigator.clipboard.writeText(text).catch((error) => {
+			console.error('[+page] Failed to copy Library Track text', error);
+		});
+	}
 
 	async function bootstrapShell() {
 		// Parallel restores; one gate so neither finishes into a false empty-state alone.
@@ -80,7 +113,7 @@
 	}
 
 	function applyCallbackErrorFromUrl() {
-		const params = new URLSearchParams(window.location.search);
+		const params = new SvelteURLSearchParams(window.location.search);
 		const scError = params.get('sc_error');
 		if (!scError) {
 			return;
@@ -157,6 +190,12 @@
 		}
 	}
 
+	function applySession(session: ImportSessionSummary | null) {
+		sessionSummary = session;
+		readiness.sourceLibraryLoaded = session !== null && session.trackCount > 0;
+	}
+
+
 	async function restoreSession() {
 		try {
 			const response = await fetch('/api/session');
@@ -173,11 +212,6 @@
 			console.error('[+page] Failed to restore Import Session', error);
 			ingestNotice = { key: 'library.restoreFailed' };
 		}
-	}
-
-	function applySession(session: ImportSessionSummary | null) {
-		sessionSummary = session;
-		readiness.sourceLibraryLoaded = session !== null && session.trackCount > 0;
 	}
 
 	async function runCatalogMatch() {
@@ -243,6 +277,7 @@
 							key: 'match.done',
 							params: {
 								auto: event.matchBuckets.auto,
+								accepted: event.matchBuckets.accepted,
 								ambiguous: event.matchBuckets.ambiguous,
 								unresolved: event.matchBuckets.unresolved
 							}
@@ -321,31 +356,34 @@
 		}
 	}
 
-	function onLocaleChange(event: Event) {
-		const next = (event.currentTarget as HTMLSelectElement).value as AppLocale;
-		setLocale(next);
+	async function clearSourceLibrary() {
+		ingestBusy = true;
+		ingestNotice = null;
+		validationErrors = [];
+		try {
+			const response = await fetch('/api/session', { method: 'DELETE' });
+			if (!response.ok) {
+				ingestNotice = { key: 'library.clearFailed' };
+				return;
+			}
+			applySession(null);
+			matchNotice = null;
+			matchProgress = null;
+			libraryDraft = '';
+			ingestNotice = { key: 'library.clearOk' };
+		} catch (error) {
+			console.error('[+page] Failed to clear Source Library', error);
+			ingestNotice = { key: 'library.clearFailed' };
+		} finally {
+			ingestBusy = false;
+		}
 	}
 
-	function trackMenuEntries(): ContextMenuEntry[] {
-		return [
-			{ type: 'item', id: 'copy-artist', label: t('menu.copyArtist') },
-			{ type: 'item', id: 'copy-title', label: t('menu.copyTitle') },
-			{ type: 'separator' },
-			{ type: 'item', id: 'copy-line', label: t('menu.copyLine') }
-		];
-	}
-
-	function onTrackMenuSelect(track: LibraryTrack, id: string) {
-		const text =
-			id === 'copy-artist'
-				? track.artist
-				: id === 'copy-title'
-					? track.title
-					: `${track.artist} — ${track.title}`;
-		void navigator.clipboard.writeText(text).catch((error) => {
-			console.error('[+page] Failed to copy Library Track text', error);
-		});
-	}
+	onMount(() => {
+		document.documentElement.lang = locale;
+		applyCallbackErrorFromUrl();
+		void bootstrapShell();
+	});
 </script>
 
 <div
@@ -476,6 +514,14 @@
 												{/if}
 											</ul>
 										{/if}
+										<button
+											type="button"
+											class="ui-btn ui-btn-muted mt-2.5 inline-flex items-center justify-center rounded-lg border px-3 py-1.5 text-sm disabled:opacity-60"
+											disabled={ingestBusy || matchBusy}
+											onclick={clearSourceLibrary}
+										>
+											{ingestBusy ? t('library.clearing') : t('library.clear')}
+										</button>
 									</div>
 								{/if}
 
@@ -568,6 +614,7 @@
 							<p class="m-0 text-emerald-800">
 								{t('match.buckets', {
 									auto: sessionSummary.matchBuckets.auto,
+									accepted: sessionSummary.matchBuckets.accepted,
 									ambiguous: sessionSummary.matchBuckets.ambiguous,
 									unresolved: sessionSummary.matchBuckets.unresolved
 								})}
@@ -600,6 +647,11 @@
 						{/if}
 					</div>
 				{/if}
+
+				<MatchResolutionPanel
+					sessionKey={matchResolutionKey}
+					onSessionChange={applySession}
+				/>
 			{/if}
 		</div>
 	</div>

@@ -1,9 +1,10 @@
 /**
  * Live SoundCloudGateway backed by local auth + catalog HTTP.
  *
- * Thin adapter: identity/disconnect delegate to SoundCloudAuthApi; search uses
- * the access token + catalog HTTP so Catalog Match depends on SoundCloudGateway,
- * not on auth file details or raw fetch URLs.
+ * Thin adapter: identity/disconnect delegate to SoundCloudAuthApi; search and
+ * listen resolve use the access token + catalog HTTP so Catalog Match /
+ * Match Resolution depend on SoundCloudGateway, not on auth file details or
+ * raw fetch URLs.
  */
 
 import type { SoundCloudAuthApi } from './soundcloud-auth-api';
@@ -36,6 +37,22 @@ export function createLiveSoundCloudGateway(
 				throw new Error('SoundCloud catalog search requires a connected account');
 			}
 			return catalogHttp.searchTracks(accessToken, query);
+		},
+
+		async getTrack(trackId) {
+			const accessToken = await authApi.getAccessToken();
+			if (!accessToken) {
+				throw new Error('SoundCloud get track requires a connected account');
+			}
+			return catalogHttp.getTrack(accessToken, trackId);
+		},
+
+		async resolveListenMedia(trackId) {
+			const accessToken = await authApi.getAccessToken();
+			if (!accessToken) {
+				throw new Error('SoundCloud listen requires a connected account');
+			}
+			return catalogHttp.resolveListenMedia(accessToken, trackId);
 		}
 	};
 }

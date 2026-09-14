@@ -34,8 +34,8 @@ export type EmptyStateGuidance = {
 /**
  * Maps readiness flags to landing copy and step statuses.
  *
- * Callers must not invent extra steps here (resolve, rematch) — those belong
- * to later Import Session flows once Catalog Match exists.
+ * Callers must not invent rematch steps here — those belong to post-import
+ * review once Import Playlist write exists.
  */
 export function emptyStateGuidance(
 	readiness: AppReadiness,

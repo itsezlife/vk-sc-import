@@ -57,6 +57,7 @@ describe('Import Session Catalog Match seam', () => {
 
 		expect(result.matchBuckets).toEqual({
 			auto: 1,
+			accepted: 0,
 			ambiguous: 1,
 			unresolved: 1
 		});
@@ -104,6 +105,7 @@ describe('Import Session Catalog Match seam', () => {
 		const reloaded = await api.getSession();
 		expect(reloaded.session?.matchBuckets).toEqual({
 			auto: 1,
+			accepted: 0,
 			ambiguous: 1,
 			unresolved: 1
 		});

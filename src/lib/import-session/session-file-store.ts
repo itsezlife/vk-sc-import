@@ -9,7 +9,7 @@
  * missing `matchRecords` reads as `[]`.
  */
 
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
 	SESSION_FILE_VERSION,
@@ -17,11 +17,13 @@ import {
 } from './import-session';
 import type { LibraryTrack } from './library-track';
 import type { MatchRecord } from './match-record';
-import type { SoundCloudTrack } from '$lib/soundcloud/soundcloud-track';
+import { parseSoundCloudTrack, type SoundCloudTrack } from '$lib/soundcloud/soundcloud-track';
 
 export type SessionFileStore = {
 	read(): Promise<ImportSession | null>;
 	write(session: ImportSession): Promise<void>;
+	/** Removes the Session File so reload is “no Import Session”. Idempotent. */
+	clear(): Promise<void>;
 };
 
 export function createSessionFileStore(dataDir: string): SessionFileStore {
@@ -53,6 +55,16 @@ export function createSessionFileStore(dataDir: string): SessionFileStore {
 			const tempPath = `${filePath}.${process.pid}.tmp`;
 			await writeFile(tempPath, `${JSON.stringify(session, null, 2)}\n`, 'utf8');
 			await rename(tempPath, filePath);
+		},
+
+		async clear() {
+			try {
+				await unlink(filePath);
+			} catch (error) {
+				if (!isNotFound(error)) {
+					throw error;
+				}
+			}
 		}
 	};
 }
@@ -150,13 +162,13 @@ function parseMatchRecord(row: unknown): MatchRecord | null {
 		return null;
 	}
 
-	if (record.classification === 'auto') {
+	if (record.classification === 'auto' || record.classification === 'accepted') {
 		const soundCloudTrack = parseSoundCloudTrack(record.soundCloudTrack);
 		if (soundCloudTrack === null) {
 			return null;
 		}
 		return {
-			classification: 'auto',
+			classification: record.classification,
 			libraryTrack,
 			soundCloudTrack,
 			confidence: record.confidence
@@ -184,36 +196,17 @@ function parseMatchRecord(row: unknown): MatchRecord | null {
 	}
 
 	if (record.classification === 'unresolved') {
+		const deferred = record.deferred;
+		if (deferred !== undefined && deferred !== true) {
+			return null;
+		}
 		return {
 			classification: 'unresolved',
 			libraryTrack,
-			confidence: record.confidence
+			confidence: record.confidence,
+			...(deferred === true ? { deferred: true as const } : {})
 		};
 	}
 
 	return null;
-}
-
-function parseSoundCloudTrack(row: unknown): SoundCloudTrack | null {
-	if (row === null || typeof row !== 'object') {
-		return null;
-	}
-	const record = row as Record<string, unknown>;
-	if (
-		typeof record.id !== 'string' ||
-		typeof record.title !== 'string' ||
-		typeof record.artist !== 'string'
-	) {
-		return null;
-	}
-	const permalinkUrl = record.permalinkUrl;
-	if (permalinkUrl !== undefined && typeof permalinkUrl !== 'string') {
-		return null;
-	}
-	return {
-		id: record.id,
-		title: record.title,
-		artist: record.artist,
-		...(typeof permalinkUrl === 'string' ? { permalinkUrl } : {})
-	};
 }

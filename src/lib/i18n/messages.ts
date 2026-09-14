@@ -57,12 +57,38 @@ export type MessageKey =
 	| 'library.restoreHttpError'
 	| 'library.restoreFailed'
 	| 'library.ingestFailed'
+	| 'library.clear'
+	| 'library.clearing'
+	| 'library.clearOk'
+	| 'library.clearFailed'
 	| 'match.run'
 	| 'match.running'
 	| 'match.progress'
 	| 'match.done'
 	| 'match.failed'
 	| 'match.buckets'
+	| 'resolve.headline'
+	| 'resolve.summary'
+	| 'resolve.empty'
+	| 'resolve.ambiguousLabel'
+	| 'resolve.unresolvedLabel'
+	| 'resolve.candidates'
+	| 'resolve.pick'
+	| 'resolve.skip'
+	| 'resolve.listen'
+	| 'resolve.openOnSoundCloud'
+	| 'resolve.noListen'
+	| 'resolve.previewLoading'
+	| 'resolve.previewUnavailable'
+	| 'resolve.searchLabel'
+	| 'resolve.searchPlaceholder'
+	| 'resolve.search'
+	| 'resolve.searching'
+	| 'resolve.searchEmpty'
+	| 'resolve.bind'
+	| 'resolve.busy'
+	| 'resolve.failed'
+	| 'resolve.queueProgress'
 	| 'menu.ariaLabel'
 	| 'menu.copyArtist'
 	| 'menu.copyTitle'
@@ -143,14 +169,42 @@ const ru: MessageCatalog = {
 	'library.restoreFailed':
 		'Не удалось восстановить Import Session через локальный API.',
 	'library.ingestFailed': 'Не удалось обратиться к локальному Import Session API.',
+	'library.clear': 'Очистить Source Library',
+	'library.clearing': 'Очистка…',
+	'library.clearOk': 'Source Library и Match Records удалены.',
+	'library.clearFailed': 'Не удалось очистить Source Library.',
 	'match.run': 'Запустить Catalog Match',
 	'match.running': 'Идёт Catalog Match…',
 	'match.progress': 'Сопоставлено {completed} из {total}',
 	'match.done':
-		'Catalog Match готов: Auto {auto}, Ambiguous {ambiguous}, Unresolved {unresolved}.',
+		'Catalog Match готов: Auto {auto}, Accepted {accepted}, Ambiguous {ambiguous}, Unresolved {unresolved}.',
 	'match.failed': 'Не удалось выполнить Catalog Match: {message}',
 	'match.buckets':
-		'Match Records — Auto: {auto}, Ambiguous: {ambiguous}, Unresolved: {unresolved}',
+		'Match Records — Auto: {auto}, Accepted: {accepted}, Ambiguous: {ambiguous}, Unresolved: {unresolved}',
+	'resolve.headline': 'Match Resolution',
+	'resolve.summary':
+		'Ambiguous и Unresolved: послушайте кандидатов, выберите, найдите на SoundCloud или пропустите.',
+	'resolve.empty': 'Очередь Match Resolution пуста — все Match Records разобраны.',
+	'resolve.ambiguousLabel': 'Ambiguous Match',
+	'resolve.unresolvedLabel': 'Unresolved',
+	'resolve.candidates': 'Кандидаты',
+	'resolve.pick': 'Выбрать',
+	'resolve.skip': 'Пропустить → Unresolved',
+	'resolve.listen': 'Слушать',
+	'resolve.openOnSoundCloud': 'Открыть в SoundCloud',
+	'resolve.noListen': 'Нет превью и ссылки',
+	'resolve.previewLoading': 'Загрузка превью…',
+	'resolve.previewUnavailable':
+		'Превью недоступно в приложении — откройте трек в SoundCloud.',
+	'resolve.searchLabel': 'Поиск SoundCloud',
+	'resolve.searchPlaceholder': 'artist title',
+	'resolve.search': 'Искать',
+	'resolve.searching': 'Поиск…',
+	'resolve.searchEmpty': 'Ничего не найдено',
+	'resolve.bind': 'Привязать',
+	'resolve.busy': 'Сохраняем…',
+	'resolve.failed': 'Не удалось обновить Match Record: {message}',
+	'resolve.queueProgress': 'В очереди: {count}',
 	'menu.ariaLabel': 'Контекстное меню',
 	'menu.copyArtist': 'Копировать исполнителя',
 	'menu.copyTitle': 'Копировать название',
@@ -234,14 +288,42 @@ const en: MessageCatalog = {
 	'library.restoreFailed':
 		'Could not restore Import Session from the local API.',
 	'library.ingestFailed': 'Could not reach the local Import Session API.',
+	'library.clear': 'Clear Source Library',
+	'library.clearing': 'Clearing…',
+	'library.clearOk': 'Source Library and Match Records cleared.',
+	'library.clearFailed': 'Could not clear the Source Library.',
 	'match.run': 'Run Catalog Match',
 	'match.running': 'Running Catalog Match…',
 	'match.progress': 'Matched {completed} of {total}',
 	'match.done':
-		'Catalog Match complete: Auto {auto}, Ambiguous {ambiguous}, Unresolved {unresolved}.',
+		'Catalog Match complete: Auto {auto}, Accepted {accepted}, Ambiguous {ambiguous}, Unresolved {unresolved}.',
 	'match.failed': 'Catalog Match failed: {message}',
 	'match.buckets':
-		'Match Records — Auto: {auto}, Ambiguous: {ambiguous}, Unresolved: {unresolved}',
+		'Match Records — Auto: {auto}, Accepted: {accepted}, Ambiguous: {ambiguous}, Unresolved: {unresolved}',
+	'resolve.headline': 'Match Resolution',
+	'resolve.summary':
+		'Work Ambiguous and Unresolved: listen to candidates, pick one, search SoundCloud, or skip.',
+	'resolve.empty': 'Match Resolution queue is empty — every Match Record is settled.',
+	'resolve.ambiguousLabel': 'Ambiguous Match',
+	'resolve.unresolvedLabel': 'Unresolved',
+	'resolve.candidates': 'Candidates',
+	'resolve.pick': 'Pick',
+	'resolve.skip': 'Skip → Unresolved',
+	'resolve.listen': 'Listen',
+	'resolve.openOnSoundCloud': 'Open on SoundCloud',
+	'resolve.noListen': 'No preview or link',
+	'resolve.previewLoading': 'Loading preview…',
+	'resolve.previewUnavailable':
+		'In-app preview unavailable — open the track on SoundCloud.',
+	'resolve.searchLabel': 'SoundCloud search',
+	'resolve.searchPlaceholder': 'artist title',
+	'resolve.search': 'Search',
+	'resolve.searching': 'Searching…',
+	'resolve.searchEmpty': 'No tracks found',
+	'resolve.bind': 'Bind',
+	'resolve.busy': 'Saving…',
+	'resolve.failed': 'Could not update Match Record: {message}',
+	'resolve.queueProgress': '{count} in queue',
 	'menu.ariaLabel': 'Context menu',
 	'menu.copyArtist': 'Copy artist',
 	'menu.copyTitle': 'Copy title',

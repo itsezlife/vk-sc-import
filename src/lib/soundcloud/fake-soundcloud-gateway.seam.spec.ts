@@ -25,7 +25,12 @@ describe('SoundCloudGateway fake seam', () => {
 
 		await gateway.disconnect();
 		await expect(gateway.getIdentity()).resolves.toBeNull();
-expect(gateway.calls).toEqual(['getIdentity', 'getIdentity', 'disconnect', 'getIdentity']);
+		expect(gateway.calls).toEqual([
+			'getIdentity',
+			'getIdentity',
+			'disconnect',
+			'getIdentity'
+		]);
 	});
 
 	it('searchTracks filters the in-memory catalog by query tokens', async () => {
@@ -40,5 +45,25 @@ expect(gateway.calls).toEqual(['getIdentity', 'getIdentity', 'disconnect', 'getI
 		]);
 		await expect(gateway.searchTracks('missing forever')).resolves.toEqual([]);
 		expect(gateway.calls).toEqual(['searchTracks', 'searchTracks']);
+	});
+
+	it('resolveListenMedia returns catalog previewUrl as progressive when present', async () => {
+		const gateway = createFakeSoundCloudGateway();
+		gateway.setCatalog([
+			{
+				id: '1',
+				artist: 'Aphex Twin',
+				title: 'Xtal',
+				previewUrl: 'https://cf-preview-media.sndcdn.com/preview/xtal.mp3'
+			},
+			{ id: '2', artist: 'Burial', title: 'Archangel' }
+		]);
+
+		await expect(gateway.resolveListenMedia('1')).resolves.toEqual({
+			url: 'https://cf-preview-media.sndcdn.com/preview/xtal.mp3',
+			kind: 'progressive'
+		});
+		await expect(gateway.resolveListenMedia('2')).resolves.toBeNull();
+		expect(gateway.calls).toEqual(['resolveListenMedia', 'resolveListenMedia']);
 	});
 });

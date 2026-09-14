@@ -114,4 +114,21 @@ describe('Import Session seam', () => {
 		const result = await api.getSession();
 		expect(result.session).toBeNull();
 	});
+
+	it('clears the Source Library and Match Records by removing the Session File', async () => {
+		await api.ingestLibrary({
+			format: 'json',
+			content: JSON.stringify([{ artist: 'Aphex Twin', title: 'Xtal' }])
+		});
+		expect((await api.getSession()).session?.trackCount).toBe(1);
+
+		const cleared = await api.clearSession();
+		expect(cleared.session).toBeNull();
+
+		expect((await api.getSession()).session).toBeNull();
+		expect(await createSessionFileStore(dataDir).read()).toBeNull();
+
+		// Idempotent when already empty.
+		await expect(api.clearSession()).resolves.toEqual({ session: null });
+	});
 });

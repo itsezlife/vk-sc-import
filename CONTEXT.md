@@ -40,9 +40,17 @@ _Avoid_: Fuzzy match, conflict, collision
 A Library Track left without an accepted SoundCloud Track (skip or no catalog hit).
 _Avoid_: Failed, error, missing (as the bucket name)
 
+**Accepted Match**:
+A Match Record bound by the user during Match Resolution (pick a candidate or search-bind), distinct from strict Auto-Match.
+_Avoid_: Manual match, confirmed (when meaning this leaf)
+
 **Match Record**:
 The binding of one Library Track to zero or one SoundCloud Track, plus confidence and flags such as already-on-SC.
 _Avoid_: Result row, mapping, link
+
+**Match Resolution**:
+Working the Ambiguous and Unresolved queue: listen, pick, search-bind, or skip (skip defers Unresolved so it does not block the rest of the queue).
+_Avoid_: Review (post-import), rematch (when meaning first-pass resolve)
 
 **Rematch**:
 Replacing the SoundCloud Track on an existing Match Record and updating the Import Playlist accordingly.
