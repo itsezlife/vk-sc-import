@@ -6,8 +6,8 @@
 
 **Status:** ready-for-agent
 
-- [ ] Authorization Code + PKCE against localhost redirect
-- [ ] Public client id via env/config; README notes registering a personal app if needed
-- [ ] UI connect/disconnect and “connected” empty-state replacement
-- [ ] SoundCloudGateway interface + fake gateway for seam tests
-- [ ] Tokens stay on the local machine (no hosted SaaS)
+- [x] Authorization Code + PKCE against localhost redirect
+- [x] Public client id via env/config; README notes registering a personal app if needed
+- [x] UI connect/disconnect and “connected” empty-state replacement
+- [x] SoundCloudGateway interface + fake gateway for seam tests
+- [x] Tokens stay on the local machine (no hosted SaaS)

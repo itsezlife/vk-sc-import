@@ -39,7 +39,8 @@ describe('Import Session seam', () => {
 				{ artist: 'Aphex Twin', title: 'Xtal' },
 				{ artist: 'Boards of Canada', title: 'Roygbiv' },
 				{ artist: 'Autechre', title: 'Fold4,Wrap5' }
-			]
+			],
+			matchBuckets: null
 		});
 		expect(ingest.validationErrors).toEqual([
 			{

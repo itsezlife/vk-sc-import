@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getRuntimeImportSessionApi } from '$lib/import-session/runtime';
+import { getRuntimeImportSessionApi } from '$lib/import-session/runtime.server';
 import type { SourceLibraryFormat } from '$lib/import-session/source-library-ingest';
 import { ValidationCode } from '$lib/import-session/validation-code';
 

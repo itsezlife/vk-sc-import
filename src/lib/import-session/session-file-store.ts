@@ -4,6 +4,9 @@
  * Owns mkdir + write of session.json under a configured data dir. Writes go to a
  * sibling temp file then rename into place so a crash mid-write does not leave a
  * half-JSON Session File that would look like “no session” on reload.
+ *
+ * Match Records are optional on disk for sessions written before Catalog Match;
+ * missing `matchRecords` reads as `[]`.
  */
 
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
@@ -13,6 +16,8 @@ import {
 	type ImportSession
 } from './import-session';
 import type { LibraryTrack } from './library-track';
+import type { MatchRecord } from './match-record';
+import type { SoundCloudTrack } from '$lib/soundcloud/soundcloud-track';
 
 export type SessionFileStore = {
 	read(): Promise<ImportSession | null>;
@@ -86,24 +91,129 @@ function parseSessionFile(raw: string): ImportSession | null {
 
 	const libraryTracks: LibraryTrack[] = [];
 	for (const row of record.libraryTracks) {
-		if (row === null || typeof row !== 'object') {
+		const track = parseLibraryTrack(row);
+		if (track === null) {
 			return null;
 		}
-		const artist = (row as { artist?: unknown }).artist;
-		const title = (row as { title?: unknown }).title;
-		if (typeof artist !== 'string' || typeof title !== 'string') {
+		libraryTracks.push(track);
+	}
+
+	let matchRecords: MatchRecord[] = [];
+	if (record.matchRecords !== undefined) {
+		if (!Array.isArray(record.matchRecords)) {
 			return null;
 		}
-		if (!artist.trim() || !title.trim()) {
-			return null;
+		matchRecords = [];
+		for (const row of record.matchRecords) {
+			const matchRecord = parseMatchRecord(row);
+			if (matchRecord === null) {
+				return null;
+			}
+			matchRecords.push(matchRecord);
 		}
-		libraryTracks.push({ artist, title });
 	}
 
 	return {
 		version: SESSION_FILE_VERSION,
 		createdAt: record.createdAt,
 		updatedAt: record.updatedAt,
-		libraryTracks
+		libraryTracks,
+		matchRecords
+	};
+}
+
+function parseLibraryTrack(row: unknown): LibraryTrack | null {
+	if (row === null || typeof row !== 'object') {
+		return null;
+	}
+	const artist = (row as { artist?: unknown }).artist;
+	const title = (row as { title?: unknown }).title;
+	if (typeof artist !== 'string' || typeof title !== 'string') {
+		return null;
+	}
+	if (!artist.trim() || !title.trim()) {
+		return null;
+	}
+	return { artist, title };
+}
+
+function parseMatchRecord(row: unknown): MatchRecord | null {
+	if (row === null || typeof row !== 'object') {
+		return null;
+	}
+	const record = row as Record<string, unknown>;
+	const libraryTrack = parseLibraryTrack(record.libraryTrack);
+	if (libraryTrack === null) {
+		return null;
+	}
+	if (typeof record.confidence !== 'number' || Number.isNaN(record.confidence)) {
+		return null;
+	}
+
+	if (record.classification === 'auto') {
+		const soundCloudTrack = parseSoundCloudTrack(record.soundCloudTrack);
+		if (soundCloudTrack === null) {
+			return null;
+		}
+		return {
+			classification: 'auto',
+			libraryTrack,
+			soundCloudTrack,
+			confidence: record.confidence
+		};
+	}
+
+	if (record.classification === 'ambiguous') {
+		if (!Array.isArray(record.candidates) || record.candidates.length === 0) {
+			return null;
+		}
+		const candidates: SoundCloudTrack[] = [];
+		for (const candidate of record.candidates) {
+			const track = parseSoundCloudTrack(candidate);
+			if (track === null) {
+				return null;
+			}
+			candidates.push(track);
+		}
+		return {
+			classification: 'ambiguous',
+			libraryTrack,
+			confidence: record.confidence,
+			candidates
+		};
+	}
+
+	if (record.classification === 'unresolved') {
+		return {
+			classification: 'unresolved',
+			libraryTrack,
+			confidence: record.confidence
+		};
+	}
+
+	return null;
+}
+
+function parseSoundCloudTrack(row: unknown): SoundCloudTrack | null {
+	if (row === null || typeof row !== 'object') {
+		return null;
+	}
+	const record = row as Record<string, unknown>;
+	if (
+		typeof record.id !== 'string' ||
+		typeof record.title !== 'string' ||
+		typeof record.artist !== 'string'
+	) {
+		return null;
+	}
+	const permalinkUrl = record.permalinkUrl;
+	if (permalinkUrl !== undefined && typeof permalinkUrl !== 'string') {
+		return null;
+	}
+	return {
+		id: record.id,
+		title: record.title,
+		artist: record.artist,
+		...(typeof permalinkUrl === 'string' ? { permalinkUrl } : {})
 	};
 }

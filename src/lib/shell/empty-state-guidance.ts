@@ -1,14 +1,14 @@
 /**
- * Landing readiness for the shell: which setup steps still block an Import Session.
+ * Landing readiness for the shell: which setup steps still block Catalog Match.
  *
  * Copy comes from the UI message catalog so Russian (primary) and English stay
- * aligned. Auth and matching still land in later issues — this only describes
- * the two setup steps the shell must explain today.
+ * aligned. When both steps are done, the page can start Catalog Match — this
+ * module still only describes connect + library ingest readiness.
  */
 
 import type { MessageCatalog } from '$lib/i18n/messages';
 
-/** Snapshot of setup flags the landing page knows about before OAuth / matching. */
+/** Snapshot of setup flags the landing page uses for empty-state guidance. */
 export type AppReadiness = {
 	soundCloudConnected: boolean;
 	sourceLibraryLoaded: boolean;
@@ -34,8 +34,8 @@ export type EmptyStateGuidance = {
 /**
  * Maps readiness flags to landing copy and step statuses.
  *
- * Callers must not invent extra steps here (matching, rematch) — those belong
- * to later Import Session flows once connect + library ingest exist.
+ * Callers must not invent extra steps here (resolve, rematch) — those belong
+ * to later Import Session flows once Catalog Match exists.
  */
 export function emptyStateGuidance(
 	readiness: AppReadiness,

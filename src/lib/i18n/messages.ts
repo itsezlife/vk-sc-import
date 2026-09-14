@@ -16,6 +16,20 @@ export type MessageKey =
 	| 'status.done'
 	| 'status.needed'
 	| 'status.soon'
+	| 'shell.restoringHeadline'
+	| 'shell.restoringSummary'
+	| 'shell.restoring'
+	| 'soundcloud.connect'
+	| 'soundcloud.connecting'
+	| 'soundcloud.disconnect'
+	| 'soundcloud.disconnecting'
+	| 'soundcloud.connectedAs'
+	| 'soundcloud.connectFailed'
+	| 'soundcloud.logoutFailed'
+	| 'soundcloud.restoreFailed'
+	| 'soundcloud.errorAuthorizeDenied'
+	| 'soundcloud.errorMissingCode'
+	| 'soundcloud.errorCompleteFailed'
 	| 'guidance.connectDetail'
 	| 'guidance.libraryDetail'
 	| 'guidance.stepConnect'
@@ -43,6 +57,12 @@ export type MessageKey =
 	| 'library.restoreHttpError'
 	| 'library.restoreFailed'
 	| 'library.ingestFailed'
+	| 'match.run'
+	| 'match.running'
+	| 'match.progress'
+	| 'match.done'
+	| 'match.failed'
+	| 'match.buckets'
 	| 'menu.ariaLabel'
 	| 'menu.copyArtist'
 	| 'menu.copyTitle'
@@ -69,6 +89,23 @@ const ru: MessageCatalog = {
 	'status.done': 'Готово',
 	'status.needed': 'Нужно',
 	'status.soon': 'скоро',
+	'shell.restoringHeadline': 'Восстановление…',
+	'shell.restoringSummary':
+		'Читаем локальное подключение SoundCloud и Import Session с диска.',
+	'shell.restoring': 'Загрузка сохранённого состояния',
+	'soundcloud.connect': 'Подключить SoundCloud',
+	'soundcloud.connecting': 'Переход к SoundCloud…',
+	'soundcloud.disconnect': 'Отключить',
+	'soundcloud.disconnecting': 'Отключение…',
+	'soundcloud.connectedAs': 'Подключено как {username}',
+	'soundcloud.connectFailed':
+		'Не удалось начать вход в SoundCloud. Проверьте SOUNDCLOUD_CLIENT_ID в .env.',
+	'soundcloud.logoutFailed': 'Не удалось отключить SoundCloud.',
+	'soundcloud.restoreFailed': 'Не удалось восстановить подключение SoundCloud.',
+	'soundcloud.errorAuthorizeDenied': 'Вход в SoundCloud отклонён.',
+	'soundcloud.errorMissingCode': 'SoundCloud не вернул код авторизации.',
+	'soundcloud.errorCompleteFailed':
+		'Не удалось завершить вход в SoundCloud. Попробуйте ещё раз.',
 	'guidance.connectDetail':
 		'Войдите, чтобы записывать совпадения в ваш Import Playlist.',
 	'guidance.libraryDetail':
@@ -88,7 +125,7 @@ const ru: MessageCatalog = {
 	'guidance.needConnectSummary':
 		'Source Library загружена. Подключите SoundCloud перед записью Import Playlist.',
 	'guidance.readyBanner':
-		'Оболочка готова. Сопоставление появится в следующей сборке.',
+		'Можно запускать каталожное сопоставление.',
 	'library.format': 'Формат',
 	'library.upload': 'Загрузить файл',
 	'library.paste': 'Или вставьте Source Library',
@@ -106,6 +143,14 @@ const ru: MessageCatalog = {
 	'library.restoreFailed':
 		'Не удалось восстановить Import Session через локальный API.',
 	'library.ingestFailed': 'Не удалось обратиться к локальному Import Session API.',
+	'match.run': 'Запустить Catalog Match',
+	'match.running': 'Идёт Catalog Match…',
+	'match.progress': 'Сопоставлено {completed} из {total}',
+	'match.done':
+		'Catalog Match готов: Auto {auto}, Ambiguous {ambiguous}, Unresolved {unresolved}.',
+	'match.failed': 'Не удалось выполнить Catalog Match: {message}',
+	'match.buckets':
+		'Match Records — Auto: {auto}, Ambiguous: {ambiguous}, Unresolved: {unresolved}',
 	'menu.ariaLabel': 'Контекстное меню',
 	'menu.copyArtist': 'Копировать исполнителя',
 	'menu.copyTitle': 'Копировать название',
@@ -134,6 +179,24 @@ const en: MessageCatalog = {
 	'status.done': 'Done',
 	'status.needed': 'Needed',
 	'status.soon': 'soon',
+	'shell.restoringHeadline': 'Restoring…',
+	'shell.restoringSummary':
+		'Reading your local SoundCloud connection and Import Session from disk.',
+	'shell.restoring': 'Loading saved state',
+	'soundcloud.connect': 'Connect SoundCloud',
+	'soundcloud.connecting': 'Redirecting to SoundCloud…',
+	'soundcloud.disconnect': 'Disconnect',
+	'soundcloud.disconnecting': 'Disconnecting…',
+	'soundcloud.connectedAs': 'Connected as {username}',
+	'soundcloud.connectFailed':
+		'Could not start SoundCloud sign-in. Check SOUNDCLOUD_CLIENT_ID in .env.',
+	'soundcloud.logoutFailed': 'Could not disconnect SoundCloud.',
+	'soundcloud.restoreFailed':
+		'Could not restore the SoundCloud connection.',
+	'soundcloud.errorAuthorizeDenied': 'SoundCloud sign-in was denied.',
+	'soundcloud.errorMissingCode': 'SoundCloud did not return an authorization code.',
+	'soundcloud.errorCompleteFailed':
+		'Could not finish SoundCloud sign-in. Try again.',
 	'guidance.connectDetail':
 		'Sign in so matched tracks can be written to your Import Playlist.',
 	'guidance.libraryDetail':
@@ -153,7 +216,7 @@ const en: MessageCatalog = {
 	'guidance.needConnectSummary':
 		'Source Library is loaded. Connect SoundCloud before writing an Import Playlist.',
 	'guidance.readyBanner':
-		'Setup complete for this shell. Matching arrives in a later build.',
+		'You can run Catalog Match now.',
 	'library.format': 'Format',
 	'library.upload': 'Upload file',
 	'library.paste': 'Or paste Source Library',
@@ -171,6 +234,14 @@ const en: MessageCatalog = {
 	'library.restoreFailed':
 		'Could not restore Import Session from the local API.',
 	'library.ingestFailed': 'Could not reach the local Import Session API.',
+	'match.run': 'Run Catalog Match',
+	'match.running': 'Running Catalog Match…',
+	'match.progress': 'Matched {completed} of {total}',
+	'match.done':
+		'Catalog Match complete: Auto {auto}, Ambiguous {ambiguous}, Unresolved {unresolved}.',
+	'match.failed': 'Catalog Match failed: {message}',
+	'match.buckets':
+		'Match Records — Auto: {auto}, Ambiguous: {ambiguous}, Unresolved: {unresolved}',
 	'menu.ariaLabel': 'Context menu',
 	'menu.copyArtist': 'Copy artist',
 	'menu.copyTitle': 'Copy title',
