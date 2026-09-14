@@ -1,11 +1,17 @@
 /**
  * Import Session API — the HTTP/JSON seam for library ingest, Catalog Match,
- * Match Resolution, and Session File I/O.
+ * Match Resolution, Import Playlist write, post-write review / Rematch, and
+ * Session File I/O.
  *
  * Routes and seam tests share this contract. Catalog Match searches through
  * SoundCloudGateway and classifies with the pure strict Auto-Match policy;
  * Match Resolution mutates Ambiguous/Unresolved Match Records (pick / search-
- * bind / skip) and persists them. Results always land in the Session File.
+ * bind / skip) and persists them. Import Playlist write creates one dated
+ * playlist, adds Auto + Accepted tracks (not likes-as-destination), flags
+ * `alreadyOnSc` from likes presence, and stores playlist identity on the
+ * Session File. Rematch replaces a bound SoundCloud Track, rebuilds playlist
+ * membership via `setPlaylistTracks` (remove/add equivalent), refreshes
+ * `alreadyOnSc`, and persists — so mistakes are fixed without soundcloud.com.
  *
  * Invariants:
  * - An ingest with zero valid Library Tracks does not create or replace a
@@ -14,27 +20,43 @@
  * - `clearSession` removes the Session File (Source Library + Match Records);
  *   it is idempotent when no session exists.
  * - `runCatalogMatch` requires a loaded session and a connected SoundCloud
- *   identity; it replaces Match Records for the full library on each pass.
+ *   identity; it replaces Match Records for the full library on each pass and
+ *   clears a prior Import Playlist identity.
  * - Resolve ops address Match Records by `matchIndex` into the current session
  *   array; they only mutate Ambiguous or Unresolved rows.
  * - In-app catalog search requires a connected SoundCloudGateway identity.
+ * - `writeImportPlaylist` requires connected gateway, bound Auto/Accepted
+ *   Match Records, and no Import Playlist already on the session; paced
+ *   `setPlaylistTracks` calls keep large adds rate-limit-friendly.
+ * - `getReviewList` returns bound Auto/Accepted rows only after Import Playlist
+ *   write (empty before write — review is a post-write journey).
+ * - `rematch` requires connected gateway, an Import Playlist already on the
+ *   session, and a bound Match Record at `matchIndex`; one `setPlaylistTracks`
+ *   replaces membership from the updated bound set.
  */
 
+import { importPlaylistTitle } from './import-playlist-title';
 import {
 	createImportSession,
+	withImportPlaylistWrite,
 	withMatchRecords,
+	withoutImportPlaylist,
 	type ImportSession
 } from './import-session';
 import type { LibraryRowValidationError, LibraryTrack } from './library-track';
 import {
 	acceptBoundTrack,
 	acceptCandidateRecord,
+	boundPlaylistTrackIds,
 	buildResolutionQueue,
+	buildReviewList,
+	rematchBoundTrack,
 	skipMatchRecord,
 	summarizeMatchBuckets,
 	type MatchBucketsSummary,
 	type MatchRecord,
-	type ResolutionQueueItem
+	type ResolutionQueueItem,
+	type ReviewListItem
 } from './match-record';
 import {
 	classifyMatch,
@@ -46,10 +68,13 @@ import {
 	ingestSourceLibrary,
 	type SourceLibraryFormat
 } from './source-library-ingest';
+import type { ImportPlaylist } from '$lib/soundcloud/import-playlist';
 import type { SoundCloudGateway } from '$lib/soundcloud/soundcloud-gateway';
 import type { SoundCloudTrack } from '$lib/soundcloud/soundcloud-track';
 
 const SAMPLE_SIZE = 5;
+/** Default pause between paced playlist membership updates (ms). */
+const DEFAULT_PLAYLIST_PACE_MS = 150;
 
 /** UI / HTTP summary of a loaded Import Session — not the Session File. */
 export type ImportSessionSummary = {
@@ -57,6 +82,8 @@ export type ImportSessionSummary = {
 	sample: LibraryTrack[];
 	/** Null until at least one Catalog Match pass wrote Match Records. */
 	matchBuckets: MatchBucketsSummary | null;
+	/** Null until Import Playlist write succeeds for this session. */
+	importPlaylist: ImportPlaylist | null;
 };
 
 export type IngestLibraryRequest = {
@@ -120,6 +147,46 @@ export type SearchCatalogResponse = {
 	tracks: SoundCloudTrack[];
 };
 
+export type ImportPlaylistWriteProgress = {
+	completed: number;
+	total: number;
+	current: LibraryTrack;
+};
+
+export type WriteImportPlaylistOptions = {
+	onProgress?: (progress: ImportPlaylistWriteProgress) => void;
+	/**
+	 * Pause between each `setPlaylistTracks` call. Tests pass `0`; live default
+	 * is basic rate-limit pacing.
+	 */
+	paceMs?: number;
+	/** Clock for dated playlist title (and Session File `updatedAt`). */
+	now?: Date;
+};
+
+export type WriteImportPlaylistResponse = {
+	session: ImportSessionSummary;
+	importPlaylist: ImportPlaylist;
+	writtenCount: number;
+	alreadyOnScCount: number;
+};
+
+export type ReviewListResponse = {
+	items: ReviewListItem[];
+	matchBuckets: MatchBucketsSummary;
+};
+
+export type RematchRequest = {
+	matchIndex: number;
+	soundCloudTrack: SoundCloudTrack;
+};
+
+export type RematchResponse = {
+	session: ImportSessionSummary;
+	matchBuckets: MatchBucketsSummary;
+	review: ReviewListResponse;
+};
+
 export type ImportSessionApi = {
 	ingestLibrary(request: IngestLibraryRequest): Promise<IngestLibraryResponse>;
 	getSession(): Promise<GetSessionResponse>;
@@ -137,20 +204,32 @@ export type ImportSessionApi = {
 	resolvePreview(request: {
 		trackId: string;
 	}): Promise<{ previewUrl: string | null; kind: 'progressive' | 'hls' | null }>;
+	writeImportPlaylist(
+		options?: WriteImportPlaylistOptions
+	): Promise<WriteImportPlaylistResponse>;
+	/** Bound Auto/Accepted Match Records for post-write review (empty before matches). */
+	getReviewList(): Promise<ReviewListResponse>;
+	/**
+	 * Rematch a bound Match Record: replace SoundCloud Track, rebuild Import
+	 * Playlist membership, refresh `alreadyOnSc`, persist Session File.
+	 */
+	rematch(request: RematchRequest): Promise<RematchResponse>;
 };
 
 export type CreateImportSessionApiOptions = {
 	dataDir: string;
 	/**
-	 * Required for Catalog Match and Match Resolution search. Ingest/getSession
-	 * work without it; match/resolve/search throw if missing or disconnected.
+	 * Required for Catalog Match, Match Resolution search, Import Playlist
+	 * write, and Rematch. Ingest/getSession work without it; match/resolve/
+	 * write/rematch throw if missing or disconnected.
 	 */
 	gateway?: SoundCloudGateway;
 };
 
 /**
  * Builds an Import Session API bound to one data directory (Session File root)
- * and an optional SoundCloudGateway for Catalog Match / Match Resolution.
+ * and an optional SoundCloudGateway for Catalog Match / Match Resolution /
+ * Import Playlist write / Rematch.
  */
 export function createImportSessionApi(
 	options: CreateImportSessionApiOptions
@@ -213,7 +292,7 @@ export function createImportSessionApi(
 				});
 			}
 
-			const next = withMatchRecords(session, matchRecords);
+			const next = withMatchRecords(withoutImportPlaylist(session), matchRecords);
 			await store.write(next);
 
 			const matchBuckets = summarizeMatchBuckets(matchRecords);
@@ -302,6 +381,128 @@ export function createImportSessionApi(
 				return { previewUrl: null, kind: null };
 			}
 			return { previewUrl: media.url, kind: media.kind };
+		},
+
+		async writeImportPlaylist(writeOptions) {
+			const activeGateway = requireGateway(gateway);
+			await requireConnected(activeGateway, 'Import Playlist write');
+
+			const session = await requireSessionWithMatches(store);
+			if (session.importPlaylist) {
+				throw new Error('Import Playlist already written for this Import Session');
+			}
+
+			const boundIndexes: number[] = [];
+			for (let index = 0; index < session.matchRecords.length; index += 1) {
+				const record = session.matchRecords[index]!;
+				if (record.classification === 'auto' || record.classification === 'accepted') {
+					boundIndexes.push(index);
+				}
+			}
+			if (boundIndexes.length === 0) {
+				throw new Error(
+					'Import Playlist write requires bound Auto or Accepted Match Records'
+				);
+			}
+
+			const now = writeOptions?.now ?? new Date();
+			const paceMs = writeOptions?.paceMs ?? DEFAULT_PLAYLIST_PACE_MS;
+			const likedIds = new Set(await activeGateway.listLikedTrackIds());
+			const title = importPlaylistTitle(now);
+			const importPlaylist = await activeGateway.createPlaylist(title);
+
+			const matchRecords = session.matchRecords.slice();
+			const accumulatedIds: string[] = [];
+			let alreadyOnScCount = 0;
+			const total = boundIndexes.length;
+
+			for (let step = 0; step < boundIndexes.length; step += 1) {
+				const matchIndex = boundIndexes[step]!;
+				const record = matchRecords[matchIndex]!;
+				if (record.classification !== 'auto' && record.classification !== 'accepted') {
+					continue;
+				}
+
+				const trackId = record.soundCloudTrack.id;
+				const alreadyOnSc = likedIds.has(trackId);
+				matchRecords[matchIndex] = {
+					...record,
+					...(alreadyOnSc ? { alreadyOnSc: true as const } : {})
+				};
+				if (alreadyOnSc) {
+					alreadyOnScCount += 1;
+				}
+
+				accumulatedIds.push(trackId);
+				await activeGateway.setPlaylistTracks(importPlaylist.id, accumulatedIds);
+
+				writeOptions?.onProgress?.({
+					completed: step + 1,
+					total,
+					current: record.libraryTrack
+				});
+
+				if (paceMs > 0 && step < boundIndexes.length - 1) {
+					await sleep(paceMs);
+				}
+			}
+
+			const next = withImportPlaylistWrite(session, importPlaylist, matchRecords, now);
+			await store.write(next);
+
+			return {
+				session: toSummary(next),
+				importPlaylist,
+				writtenCount: accumulatedIds.length,
+				alreadyOnScCount
+			};
+		},
+
+		async getReviewList() {
+			const session = await store.read();
+			if (!session || session.matchRecords.length === 0 || !session.importPlaylist) {
+				return {
+					items: [],
+					matchBuckets: summarizeMatchBuckets(session?.matchRecords ?? [])
+				};
+			}
+			return {
+				items: buildReviewList(session.matchRecords),
+				matchBuckets: summarizeMatchBuckets(session.matchRecords)
+			};
+		},
+
+		async rematch(request) {
+			const activeGateway = requireGateway(gateway);
+			await requireConnected(activeGateway, 'Rematch');
+
+			const session = await requireSessionWithMatches(store);
+			if (!session.importPlaylist) {
+				throw new Error('Rematch requires an Import Playlist written for this Import Session');
+			}
+
+			const record = requireBoundRecord(session, request.matchIndex);
+			const likedIds = new Set(await activeGateway.listLikedTrackIds());
+			const alreadyOnSc = likedIds.has(request.soundCloudTrack.id);
+			const nextRecord = rematchBoundTrack(record, request.soundCloudTrack, alreadyOnSc);
+
+			const matchRecords = session.matchRecords.slice();
+			matchRecords[request.matchIndex] = nextRecord;
+			const playlistTrackIds = boundPlaylistTrackIds(matchRecords);
+			await activeGateway.setPlaylistTracks(session.importPlaylist.id, playlistTrackIds);
+
+			const next = withMatchRecords(session, matchRecords);
+			await store.write(next);
+
+			const matchBuckets = summarizeMatchBuckets(matchRecords);
+			return {
+				session: toSummary(next),
+				matchBuckets,
+				review: {
+					items: buildReviewList(matchRecords),
+					matchBuckets
+				}
+			};
 		}
 	};
 }
@@ -315,7 +516,8 @@ function toSummary(session: ImportSession): ImportSessionSummary {
 	return {
 		trackCount: session.libraryTracks.length,
 		sample: session.libraryTracks.slice(0, SAMPLE_SIZE),
-		matchBuckets
+		matchBuckets,
+		importPlaylist: session.importPlaylist ?? null
 	};
 }
 
@@ -368,6 +570,26 @@ function requireResolvableRecord(
 	if (record.classification !== 'ambiguous' && record.classification !== 'unresolved') {
 		throw new Error(
 			`Match Record at index ${matchIndex} is ${record.classification}, not Ambiguous or Unresolved`
+		);
+	}
+	return record;
+}
+
+function requireBoundRecord(
+	session: ImportSession,
+	matchIndex: number
+): Extract<MatchRecord, { classification: 'auto' | 'accepted' }> {
+	if (
+		!Number.isInteger(matchIndex) ||
+		matchIndex < 0 ||
+		matchIndex >= session.matchRecords.length
+	) {
+		throw new Error(`Match Record index ${matchIndex} is out of range`);
+	}
+	const record = session.matchRecords[matchIndex]!;
+	if (record.classification !== 'auto' && record.classification !== 'accepted') {
+		throw new Error(
+			`Rematch requires a bound Auto or Accepted Match Record at index ${matchIndex}`
 		);
 	}
 	return record;
@@ -463,4 +685,10 @@ function stripGatedPreviewUrl(track: SoundCloudTrack): SoundCloudTrack {
 		return rest;
 	}
 	return track;
+}
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => {
+		setTimeout(resolve, ms);
+	});
 }

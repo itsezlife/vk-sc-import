@@ -40,7 +40,8 @@ describe('Import Session seam', () => {
 				{ artist: 'Boards of Canada', title: 'Roygbiv' },
 				{ artist: 'Autechre', title: 'Fold4,Wrap5' }
 			],
-			matchBuckets: null
+			matchBuckets: null,
+			importPlaylist: null
 		});
 		expect(ingest.validationErrors).toEqual([
 			{

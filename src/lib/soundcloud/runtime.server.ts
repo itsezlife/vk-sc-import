@@ -16,6 +16,7 @@ import { createSoundCloudAuthTokenStore } from './auth-token-store';
 import { createSoundCloudCatalogHttp } from './catalog-http';
 import { loadSoundCloudOAuthConfig } from './oauth-config';
 import { createSoundCloudOAuthHttp } from './oauth-http';
+import { createSoundCloudPlaylistHttp } from './playlist-http';
 import {
 	createSoundCloudAuthApi,
 	type SoundCloudAuthApi
@@ -53,7 +54,8 @@ export function getRuntimeSoundCloudGateway(): SoundCloudGateway {
 		});
 		runtimeGateway = createLiveSoundCloudGateway({
 			authApi: getRuntimeSoundCloudAuthApi(),
-			catalogHttp: createSoundCloudCatalogHttp(config)
+			catalogHttp: createSoundCloudCatalogHttp(config),
+			playlistHttp: createSoundCloudPlaylistHttp(config)
 		});
 	}
 	return runtimeGateway;

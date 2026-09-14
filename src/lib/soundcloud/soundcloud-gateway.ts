@@ -2,19 +2,22 @@
  * SoundCloudGateway — port for SoundCloud catalog and account operations.
  *
  * Contract that Import Session orchestration (and seam tests) use so CI never
- * hits the live SoundCloud network. Catalog Match and later Import Playlist
- * flows should depend on this interface, not on fetch URLs or OAuth token files.
+ * hits the live SoundCloud network. Catalog Match, Match Resolution, Import
+ * Playlist write, and Rematch depend on this interface, not on fetch URLs or
+ * OAuth token files.
  *
  * Owns: identity for the connected account, catalog search for Catalog Match
- * and Match Resolution (in-app search), listen media resolve for in-app listen
- * (`<audio>` + HLS when needed).
- *
- * Playlist CRUD and library presence (`already_on_sc`) arrive in later issues.
+ * and Match Resolution / Rematch (in-app search), listen media resolve for
+ * in-app listen (`<audio>` + HLS when needed), Import Playlist create /
+ * membership replace (write + Rematch remove/add equivalent), and liked-track
+ * presence for already-on-SC (`alreadyOnSc`).
  *
  * Does not own: OAuth PKCE dance itself (SoundCloudAuthApi + token store),
- * Import Session / Session File, UI copy, score/classify / resolve policy.
+ * Import Session / Session File, UI copy, score/classify / resolve / Rematch
+ * policy.
  */
 
+import type { ImportPlaylist } from './import-playlist';
 import type { ListenMedia } from './listen-media';
 import type { SoundCloudIdentity } from './soundcloud-identity';
 import type { SoundCloudTrack } from './soundcloud-track';
@@ -41,4 +44,21 @@ export type SoundCloudGateway = {
 	 * Null when blocked — callers should fall back to `permalinkUrl`.
 	 */
 	resolveListenMedia(trackId: string): Promise<ListenMedia | null>;
+	/**
+	 * Creates an empty Import Playlist with the given title on the connected
+	 * account. Returns domain playlist identity for the Session File.
+	 */
+	createPlaylist(title: string): Promise<ImportPlaylist>;
+	/**
+	 * Replaces playlist membership with the given ordered track ids (SoundCloud
+	 * PUT semantics). Callers accumulate ids and re-call for paced batches on
+	 * write, or pass the full rebuilt bound set once on Rematch (remove/add
+	 * equivalent without a separate remove API).
+	 */
+	setPlaylistTracks(playlistId: string, trackIds: string[]): Promise<void>;
+	/**
+	 * Track ids currently liked by the connected account — used once per write
+	 * to set `alreadyOnSc`. Likes are presence only, never the write destination.
+	 */
+	listLikedTrackIds(): Promise<string[]>;
 };

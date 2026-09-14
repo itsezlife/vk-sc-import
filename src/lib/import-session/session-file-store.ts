@@ -6,11 +6,16 @@
  * half-JSON Session File that would look like “no session” on reload.
  *
  * Match Records are optional on disk for sessions written before Catalog Match;
- * missing `matchRecords` reads as `[]`.
+ * missing `matchRecords` reads as `[]`. Import Playlist and `alreadyOnSc` are
+ * optional for sessions written before Import Playlist write.
  */
 
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import {
+	parseImportPlaylist,
+	type ImportPlaylist
+} from '$lib/soundcloud/import-playlist';
 import {
 	SESSION_FILE_VERSION,
 	type ImportSession
@@ -125,12 +130,22 @@ function parseSessionFile(raw: string): ImportSession | null {
 		}
 	}
 
+	let importPlaylist: ImportPlaylist | undefined;
+	if (record.importPlaylist !== undefined) {
+		const parsed = parseImportPlaylist(record.importPlaylist);
+		if (parsed === null) {
+			return null;
+		}
+		importPlaylist = parsed;
+	}
+
 	return {
 		version: SESSION_FILE_VERSION,
 		createdAt: record.createdAt,
 		updatedAt: record.updatedAt,
 		libraryTracks,
-		matchRecords
+		matchRecords,
+		...(importPlaylist ? { importPlaylist } : {})
 	};
 }
 
@@ -167,11 +182,16 @@ function parseMatchRecord(row: unknown): MatchRecord | null {
 		if (soundCloudTrack === null) {
 			return null;
 		}
+		const alreadyOnSc = record.alreadyOnSc;
+		if (alreadyOnSc !== undefined && alreadyOnSc !== true) {
+			return null;
+		}
 		return {
 			classification: record.classification,
 			libraryTrack,
 			soundCloudTrack,
-			confidence: record.confidence
+			confidence: record.confidence,
+			...(alreadyOnSc === true ? { alreadyOnSc: true as const } : {})
 		};
 	}
 

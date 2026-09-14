@@ -13,6 +13,7 @@
 	import ResolveTrackCard from '$lib/import-session/ResolveTrackCard.svelte';
 	import type { ListenMedia } from '$lib/soundcloud/listen-media';
 	import { listenMediaKindFromUrl } from '$lib/soundcloud/listen-media';
+	import { isCdnPlayablePreview } from '$lib/soundcloud/cdn-playable-preview';
 	import type { SoundCloudTrack } from '$lib/soundcloud/soundcloud-track';
 	import type { MessageKey } from '$lib/i18n/messages';
 	import { getLocale, t } from '$lib/i18n/ui.svelte';
@@ -350,15 +351,6 @@
 			};
 		} finally {
 			previewBusySlot = null;
-		}
-	}
-
-	function isCdnPlayablePreview(url: string): boolean {
-		try {
-			const host = new URL(url).hostname.toLowerCase();
-			return host !== 'api.soundcloud.com' && !host.endsWith('.api.soundcloud.com');
-		} catch {
-			return false;
 		}
 	}
 </script>

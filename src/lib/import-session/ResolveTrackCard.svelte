@@ -1,8 +1,9 @@
 <script lang="ts">
 	/**
-	 * One SoundCloud Track choice in Match Resolution (candidate or search hit).
-	 * Same interaction meaning at both call sites — climb the extraction ladder
-	 * here, not a god-card with mode flags for unrelated screens.
+	 * One SoundCloud Track choice in Match Resolution or Rematch search
+	 * (candidate / search hit). Same interaction meaning at both call sites —
+	 * climb the extraction ladder here, not a god-card with mode flags for
+	 * unrelated screens.
 	 */
 	import type { ListenMedia } from '$lib/soundcloud/listen-media';
 	import {

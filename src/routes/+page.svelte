@@ -12,6 +12,7 @@
 	import type { ImportSessionSummary } from '$lib/import-session/import-session-api';
 	import type { MatchBucketsSummary } from '$lib/import-session/match-record';
 	import MatchResolutionPanel from '$lib/import-session/MatchResolutionPanel.svelte';
+	import ReviewRematchPanel from '$lib/import-session/ReviewRematchPanel.svelte';
 	import type { LibraryRowValidationError, LibraryTrack } from '$lib/import-session/library-track';
 	import type { SourceLibraryFormat } from '$lib/import-session/source-library-ingest';
 	import { emptyStateGuidance } from '$lib/shell/empty-state-guidance';
@@ -55,6 +56,13 @@
 		params?: Record<string, string | number>;
 	} | null>(null);
 
+	let playlistBusy = $state(false);
+	let playlistProgress = $state<{ completed: number; total: number } | null>(null);
+	let playlistNotice = $state<{
+		key: MessageKey;
+		params?: Record<string, string | number>;
+	} | null>(null);
+
 	const locale = $derived(getLocale());
 	const messages = $derived(messagesFor(locale));
 	const guidance = $derived(emptyStateGuidance(readiness, messages));
@@ -68,6 +76,9 @@
 	const matchMessage = $derived(
 		matchNotice ? t(matchNotice.key, matchNotice.params, locale) : null
 	);
+	const playlistMessage = $derived(
+		playlistNotice ? t(playlistNotice.key, playlistNotice.params, locale) : null
+	);
 	const matchResolutionKey = $derived(
 		sessionSummary?.matchBuckets
 			? [
@@ -75,7 +86,25 @@
 					sessionSummary.matchBuckets.auto,
 					sessionSummary.matchBuckets.accepted,
 					sessionSummary.matchBuckets.ambiguous,
-					sessionSummary.matchBuckets.unresolved
+					sessionSummary.matchBuckets.unresolved,
+					sessionSummary.importPlaylist?.id ?? ''
+				].join(':')
+			: null
+	);
+	const boundMatchCount = $derived(
+		sessionSummary?.matchBuckets
+			? sessionSummary.matchBuckets.auto + sessionSummary.matchBuckets.accepted
+			: 0
+	);
+	const canWritePlaylist = $derived(
+		boundMatchCount > 0 && sessionSummary?.importPlaylist == null && !matchBusy
+	);
+	const reviewSessionKey = $derived(
+		sessionSummary?.importPlaylist && sessionSummary.matchBuckets
+			? [
+					sessionSummary.importPlaylist.id,
+					sessionSummary.matchBuckets.auto,
+					sessionSummary.matchBuckets.accepted
 				].join(':')
 			: null
 	);
@@ -303,6 +332,95 @@
 		}
 	}
 
+	async function writeImportPlaylist() {
+		playlistBusy = true;
+		playlistNotice = null;
+		playlistProgress =
+			boundMatchCount > 0 ? { completed: 0, total: boundMatchCount } : null;
+
+		try {
+			const response = await fetch('/api/session/playlist', { method: 'POST' });
+			if (!response.ok || !response.body) {
+				playlistNotice = {
+					key: 'playlist.failed',
+					params: { message: `HTTP ${response.status}` }
+				};
+				return;
+			}
+
+			const reader = response.body.getReader();
+			const decoder = new TextDecoder();
+			let buffer = '';
+
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) {
+					break;
+				}
+				buffer += decoder.decode(value, { stream: true });
+				const lines = buffer.split('\n');
+				buffer = lines.pop() ?? '';
+
+				for (const line of lines) {
+					const trimmed = line.trim();
+					if (!trimmed) {
+						continue;
+					}
+					const event = JSON.parse(trimmed) as
+						| {
+								type: 'progress';
+								completed: number;
+								total: number;
+						  }
+						| {
+								type: 'done';
+								session: ImportSessionSummary;
+								importPlaylist: { id: string; title: string; permalinkUrl?: string };
+								writtenCount: number;
+								alreadyOnScCount: number;
+						  }
+						| { type: 'error'; message: string };
+
+					if (event.type === 'progress') {
+						playlistProgress = {
+							completed: event.completed,
+							total: event.total
+						};
+					} else if (event.type === 'done') {
+						applySession(event.session);
+						playlistProgress = {
+							completed: event.writtenCount,
+							total: event.writtenCount
+						};
+						playlistNotice = {
+							key: 'playlist.done',
+							params: {
+								title: event.importPlaylist.title,
+								written: event.writtenCount,
+								alreadyOnSc: event.alreadyOnScCount
+							}
+						};
+					} else if (event.type === 'error') {
+						playlistNotice = {
+							key: 'playlist.failed',
+							params: { message: event.message }
+						};
+					}
+				}
+			}
+		} catch (error) {
+			console.error('[+page] Failed to write Import Playlist', error);
+			playlistNotice = {
+				key: 'playlist.failed',
+				params: {
+					message: error instanceof Error ? error.message : 'unknown'
+				}
+			};
+		} finally {
+			playlistBusy = false;
+		}
+	}
+
 	async function onFileChosen(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		const file = input.files?.[0];
@@ -341,6 +459,8 @@
 				applySession(body.session);
 				matchNotice = null;
 				matchProgress = null;
+				playlistNotice = null;
+				playlistProgress = null;
 				ingestNotice = {
 					key: 'library.ingestOk',
 					pluralCount: body.session.trackCount
@@ -369,6 +489,8 @@
 			applySession(null);
 			matchNotice = null;
 			matchProgress = null;
+			playlistNotice = null;
+			playlistProgress = null;
 			libraryDraft = '';
 			ingestNotice = { key: 'library.clearOk' };
 		} catch (error) {
@@ -652,6 +774,57 @@
 					sessionKey={matchResolutionKey}
 					onSessionChange={applySession}
 				/>
+
+				{#if canWritePlaylist || sessionSummary?.importPlaylist || playlistBusy || playlistMessage}
+					<div
+						class="ui-fade-in mt-5 grid gap-3 rounded-lg border border-slate-900/10 bg-white/85 px-3.5 py-3 text-sm text-slate-800"
+						role="status"
+					>
+						{#if sessionSummary?.importPlaylist}
+							<p class="m-0 text-emerald-800">
+								{t('playlist.written', { title: sessionSummary.importPlaylist.title })}
+								{#if sessionSummary.importPlaylist.permalinkUrl}
+									—
+									<a
+										class="text-teal-800 underline"
+										href={sessionSummary.importPlaylist.permalinkUrl}
+										target="_blank"
+										rel="noreferrer"
+									>
+										SoundCloud
+									</a>
+								{/if}
+							</p>
+						{:else if canWritePlaylist}
+							<button
+								type="button"
+								class="ui-btn ui-btn-primary inline-flex w-full items-center justify-center rounded-lg border border-teal-800/25 bg-teal-700 px-3.5 py-2 text-sm font-medium text-white disabled:opacity-60 sm:w-auto"
+								disabled={playlistBusy}
+								onclick={writeImportPlaylist}
+							>
+								{playlistBusy ? t('playlist.writing') : t('playlist.write')}
+							</button>
+						{/if}
+
+						{#if playlistBusy && playlistProgress}
+							<div class="ui-busy" aria-live="polite" aria-busy="true">
+								<span class="ui-busy-pulse" aria-hidden="true"></span>
+								<span>
+									{t('playlist.progress', {
+										completed: playlistProgress.completed,
+										total: playlistProgress.total
+									})}
+								</span>
+							</div>
+						{/if}
+
+						{#if playlistMessage}
+							<p class="ui-fade-in m-0 text-emerald-900" role="status">{playlistMessage}</p>
+						{/if}
+					</div>
+				{/if}
+
+				<ReviewRematchPanel sessionKey={reviewSessionKey} onSessionChange={applySession} />
 			{/if}
 		</div>
 	</div>

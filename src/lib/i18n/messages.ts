@@ -89,6 +89,28 @@ export type MessageKey =
 	| 'resolve.busy'
 	| 'resolve.failed'
 	| 'resolve.queueProgress'
+	| 'playlist.write'
+	| 'playlist.writing'
+	| 'playlist.progress'
+	| 'playlist.done'
+	| 'playlist.failed'
+	| 'playlist.written'
+	| 'review.headline'
+	| 'review.summary'
+	| 'review.count'
+	| 'review.empty'
+	| 'review.autoLabel'
+	| 'review.acceptedLabel'
+	| 'review.confidence'
+	| 'review.alreadyOnSc'
+	| 'review.libraryTrack'
+	| 'review.soundCloudTrack'
+	| 'review.rematch'
+	| 'review.cancelRematch'
+	| 'review.searchLabel'
+	| 'review.confirmRematch'
+	| 'review.rematchDone'
+	| 'review.failed'
 	| 'menu.ariaLabel'
 	| 'menu.copyArtist'
 	| 'menu.copyTitle'
@@ -205,6 +227,30 @@ const ru: MessageCatalog = {
 	'resolve.busy': 'Сохраняем…',
 	'resolve.failed': 'Не удалось обновить Match Record: {message}',
 	'resolve.queueProgress': 'В очереди: {count}',
+	'playlist.write': 'Записать Import Playlist',
+	'playlist.writing': 'Пишем Import Playlist…',
+	'playlist.progress': 'Добавлено {completed} из {total}',
+	'playlist.done':
+		'Import Playlist «{title}»: {written} треков, уже на SoundCloud: {alreadyOnSc}.',
+	'playlist.failed': 'Не удалось записать Import Playlist: {message}',
+	'playlist.written': 'Import Playlist записан: {title}',
+	'review.headline': 'Review Match Records',
+	'review.summary':
+		'Проверьте пары Library Track ↔ SoundCloud Track, послушайте и при необходимости Rematch — Import Playlist обновится.',
+	'review.count': 'Bound Match Records: {count}',
+	'review.empty': 'Нет bound Match Records для review.',
+	'review.autoLabel': 'Auto-Match',
+	'review.acceptedLabel': 'Accepted Match',
+	'review.confidence': 'Уверенность {value}',
+	'review.alreadyOnSc': 'Уже на SoundCloud',
+	'review.libraryTrack': 'Library Track',
+	'review.soundCloudTrack': 'SoundCloud Track',
+	'review.rematch': 'Rematch',
+	'review.cancelRematch': 'Отменить Rematch',
+	'review.searchLabel': 'Найти другой SoundCloud Track',
+	'review.confirmRematch': 'Заменить',
+	'review.rematchDone': 'Rematch сохранён — Match Record и Import Playlist обновлены.',
+	'review.failed': 'Не удалось выполнить Rematch: {message}',
 	'menu.ariaLabel': 'Контекстное меню',
 	'menu.copyArtist': 'Копировать исполнителя',
 	'menu.copyTitle': 'Копировать название',
@@ -324,6 +370,30 @@ const en: MessageCatalog = {
 	'resolve.busy': 'Saving…',
 	'resolve.failed': 'Could not update Match Record: {message}',
 	'resolve.queueProgress': '{count} in queue',
+	'playlist.write': 'Write Import Playlist',
+	'playlist.writing': 'Writing Import Playlist…',
+	'playlist.progress': 'Added {completed} of {total}',
+	'playlist.done':
+		'Import Playlist “{title}”: {written} tracks, already on SoundCloud: {alreadyOnSc}.',
+	'playlist.failed': 'Import Playlist write failed: {message}',
+	'playlist.written': 'Import Playlist written: {title}',
+	'review.headline': 'Review Match Records',
+	'review.summary':
+		'Audit Library Track ↔ SoundCloud Track pairs, listen to verify, and Rematch so the Import Playlist updates without fixing mistakes only on soundcloud.com.',
+	'review.count': '{count} bound Match Records',
+	'review.empty': 'No bound Match Records to review.',
+	'review.autoLabel': 'Auto-Match',
+	'review.acceptedLabel': 'Accepted Match',
+	'review.confidence': 'Confidence {value}',
+	'review.alreadyOnSc': 'Already on SoundCloud',
+	'review.libraryTrack': 'Library Track',
+	'review.soundCloudTrack': 'SoundCloud Track',
+	'review.rematch': 'Rematch',
+	'review.cancelRematch': 'Cancel Rematch',
+	'review.searchLabel': 'Find another SoundCloud Track',
+	'review.confirmRematch': 'Replace',
+	'review.rematchDone': 'Rematch saved — Match Record and Import Playlist updated.',
+	'review.failed': 'Rematch failed: {message}',
 	'menu.ariaLabel': 'Context menu',
 	'menu.copyArtist': 'Copy artist',
 	'menu.copyTitle': 'Copy title',
