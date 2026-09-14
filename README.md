@@ -26,7 +26,7 @@ npm run dev -- --open
 
 ## What you will see
 
-The landing page starts empty: SoundCloud is not connected and no Source Library is loaded. Those steps light up as later features land. Until then, the UI explains what comes next.
+The landing page defaults to **Russian** UI copy (switchable to English). SoundCloud starts disconnected. You can upload or paste a **Source Library** (JSON preferred, CSV accepted) with `artist` + `title` per Library Track. Valid rows create an **Import Session** stored in `.data/session.json` on disk so a reload restores the library; invalid rows are reported and skipped. SoundCloud connect lands in a later build.
 
 ## Out of scope
 

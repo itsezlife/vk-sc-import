@@ -3,6 +3,9 @@ node_modules
 # Local agent / editor skill cache — not part of the app
 .cursor/
 
+# Local Import Session / Session File (machine-local)
+.data/
+
 # Output
 .output
 .vercel

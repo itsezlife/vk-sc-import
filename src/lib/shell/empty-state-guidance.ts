@@ -1,13 +1,14 @@
 /**
  * Landing readiness for the shell: which setup steps still block an Import Session.
  *
- * Without this map, the UI would scatter ad-hoc copy for “not connected” vs “no
- * library” and drift from CONTEXT.md terms (SoundCloud, Source Library, Import
- * Playlist). Auth and ingest land in later issues; this module only describes
- * the two empty states the shell must explain today.
+ * Copy comes from the UI message catalog so Russian (primary) and English stay
+ * aligned. Auth and matching still land in later issues — this only describes
+ * the two setup steps the shell must explain today.
  */
 
-/** Snapshot of setup flags the landing page knows about before OAuth / ingest exist. */
+import type { MessageCatalog } from '$lib/i18n/messages';
+
+/** Snapshot of setup flags the landing page knows about before OAuth / matching. */
 export type AppReadiness = {
 	soundCloudConnected: boolean;
 	sourceLibraryLoaded: boolean;
@@ -30,29 +31,27 @@ export type EmptyStateGuidance = {
 	readyToMatch: boolean;
 };
 
-const CONNECT_DETAIL =
-	'Sign in so matched tracks can be written to your Import Playlist.';
-const LIBRARY_DETAIL =
-	'Provide your VK likes as a Source Library of artist + title rows.';
-
 /**
  * Maps readiness flags to landing copy and step statuses.
  *
  * Callers must not invent extra steps here (matching, rematch) — those belong
  * to later Import Session flows once connect + library ingest exist.
  */
-export function emptyStateGuidance(readiness: AppReadiness): EmptyStateGuidance {
+export function emptyStateGuidance(
+	readiness: AppReadiness,
+	messages: MessageCatalog
+): EmptyStateGuidance {
 	const steps: EmptyStateStep[] = [
 		{
 			id: 'connect-soundcloud',
-			title: 'Connect SoundCloud',
-			detail: CONNECT_DETAIL,
+			title: messages['guidance.stepConnect'],
+			detail: messages['guidance.connectDetail'],
 			status: readiness.soundCloudConnected ? 'done' : 'needed'
 		},
 		{
 			id: 'load-source-library',
-			title: 'Load Source Library',
-			detail: LIBRARY_DETAIL,
+			title: messages['guidance.stepLibrary'],
+			detail: messages['guidance.libraryDetail'],
 			status: readiness.sourceLibraryLoaded ? 'done' : 'needed'
 		}
 	];
@@ -62,9 +61,8 @@ export function emptyStateGuidance(readiness: AppReadiness): EmptyStateGuidance 
 
 	if (readyToMatch) {
 		return {
-			headline: 'Ready to catalog match',
-			summary:
-				'SoundCloud is connected and a Source Library is loaded. Catalog matching comes next.',
+			headline: messages['guidance.readyHeadline'],
+			summary: messages['guidance.readySummary'],
 			steps,
 			readyToMatch
 		};
@@ -72,9 +70,8 @@ export function emptyStateGuidance(readiness: AppReadiness): EmptyStateGuidance 
 
 	if (!readiness.soundCloudConnected && !readiness.sourceLibraryLoaded) {
 		return {
-			headline: 'Start your Import Session',
-			summary:
-				'Connect SoundCloud and load a Source Library to catalog-match VK likes into an Import Playlist.',
+			headline: messages['guidance.startHeadline'],
+			summary: messages['guidance.startSummary'],
 			steps,
 			readyToMatch
 		};
@@ -82,18 +79,16 @@ export function emptyStateGuidance(readiness: AppReadiness): EmptyStateGuidance 
 
 	if (readiness.soundCloudConnected) {
 		return {
-			headline: 'Load a Source Library',
-			summary:
-				'SoundCloud is connected. Load a Source Library to start catalog matching.',
+			headline: messages['guidance.needLibraryHeadline'],
+			summary: messages['guidance.needLibrarySummary'],
 			steps,
 			readyToMatch
 		};
 	}
 
 	return {
-		headline: 'Connect SoundCloud',
-		summary:
-			'Source Library is loaded. Connect SoundCloud before writing an Import Playlist.',
+		headline: messages['guidance.needConnectHeadline'],
+		summary: messages['guidance.needConnectSummary'],
 		steps,
 		readyToMatch
 	};

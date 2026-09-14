@@ -6,8 +6,8 @@
 
 **Status:** ready-for-agent
 
-- [ ] Accept JSON/CSV Source Library with required artist + title per Library Track
-- [ ] Reject/report rows missing artist or title without poisoning the session
-- [ ] Create Import Session and persist Session File on disk
-- [ ] UI shows loaded library count / sample; empty state when none loaded
-- [ ] Import Session seam test covers ingest + persistence round-trip (no live SoundCloud)
+- [x] Accept JSON/CSV Source Library with required artist + title per Library Track
+- [x] Reject/report rows missing artist or title without poisoning the session
+- [x] Create Import Session and persist Session File on disk
+- [x] UI shows loaded library count / sample; empty state when none loaded
+- [x] Import Session seam test covers ingest + persistence round-trip (no live SoundCloud)
