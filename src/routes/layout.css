@@ -1,0 +1,10 @@
+@import 'tailwindcss';
+
+/*
+ * Tool chrome typeface — one stack for the shell so pages do not repeat
+ * inline font-family on every node.
+ */
+@theme {
+	--font-shell:
+		'Avenir Next', Avenir, 'Trebuchet MS', sans-serif;
+}
