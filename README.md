@@ -27,6 +27,14 @@ To open a browser tab automatically:
 npm run dev -- --open
 ```
 
+## Source Library (VK likes)
+
+Produce a library file **before** (or instead of) using the upload UI:
+
+1. Follow [docs/vk-source-library.md](docs/vk-source-library.md) — DevTools snippet on your VK likes page, or Network-tab capture.
+2. If the snippet breaks when VK changes markup, use the JSON/CSV templates under [docs/templates/](docs/templates/).
+3. Upload or paste into the app (`artist` + `title` per Library Track).
+
 ## SoundCloud connect
 
 1. Register a personal app in the [SoundCloud developers](https://developers.soundcloud.com/) / apps area and copy the **client id**.
@@ -39,6 +47,16 @@ npm run dev -- --open
 ## What you will see
 
 The landing page defaults to **Russian** UI copy (switchable to English). Use **Connect SoundCloud** to sign in via the browser; the shell shows your username when connected, and **Disconnect** clears local tokens. You can upload or paste a **Source Library** (JSON preferred, CSV accepted) with `artist` + `title` per Library Track. Valid rows create an **Import Session** stored in `.data/session.json` on disk so a reload restores the library; invalid rows are reported and skipped.
+
+After Catalog Match you can **export Unresolved** (or full Match Records) as a JSON download. Long Catalog Match and Import Playlist writes show progress and support **Pause / cancel** — the Session File keeps completed work so you can resume.
+
+## Large libraries (1000+ tracks)
+
+- Catalog Match and Import Playlist membership updates are **paced** (~150 ms between SoundCloud calls by default) so large runs stay rate-limit-friendly.
+- **Pause / cancel** aborts the in-flight run after the current unit of work; the Session File already holds that progress (atomic write).
+- **Resume Catalog Match:** if Match Records are a shorter prefix than the library, the next Run continues from that index. A completed pass started again is a **fresh** full replace (and clears a prior Import Playlist identity).
+- **Resume Import Playlist write:** if write status is `in_progress`, Resume reuses the same playlist id and rewrites membership. A **complete** write started again is **idempotent-ish**: same playlist, membership PUT again (no second playlist). Avoid double-clicking Run while a pass is already busy — the UI disables overlapping starts.
+- Accidental browser close mid-run: reopen the app; incomplete Match / `in_progress` playlist state is restored from `.data/session.json`.
 
 ## Out of scope
 

@@ -8,6 +8,8 @@
  * Match Records are optional on disk for sessions written before Catalog Match;
  * missing `matchRecords` reads as `[]`. Import Playlist and `alreadyOnSc` are
  * optional for sessions written before Import Playlist write.
+ * `importPlaylistWriteStatus` is optional; a legacy Session File with
+ * `importPlaylist` and no status reads as a completed write.
  */
 
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
@@ -18,6 +20,7 @@ import {
 } from '$lib/soundcloud/import-playlist';
 import {
 	SESSION_FILE_VERSION,
+	type ImportPlaylistWriteStatus,
 	type ImportSession
 } from './import-session';
 import type { LibraryTrack } from './library-track';
@@ -139,13 +142,25 @@ function parseSessionFile(raw: string): ImportSession | null {
 		importPlaylist = parsed;
 	}
 
+	let importPlaylistWriteStatus: ImportPlaylistWriteStatus | undefined;
+	if (record.importPlaylistWriteStatus !== undefined) {
+		if (
+			record.importPlaylistWriteStatus !== 'in_progress' &&
+			record.importPlaylistWriteStatus !== 'complete'
+		) {
+			return null;
+		}
+		importPlaylistWriteStatus = record.importPlaylistWriteStatus;
+	}
+
 	return {
 		version: SESSION_FILE_VERSION,
 		createdAt: record.createdAt,
 		updatedAt: record.updatedAt,
 		libraryTracks,
 		matchRecords,
-		...(importPlaylist ? { importPlaylist } : {})
+		...(importPlaylist ? { importPlaylist } : {}),
+		...(importPlaylistWriteStatus ? { importPlaylistWriteStatus } : {})
 	};
 }
 

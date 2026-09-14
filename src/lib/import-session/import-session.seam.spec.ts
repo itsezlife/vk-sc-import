@@ -41,7 +41,9 @@ describe('Import Session seam', () => {
 				{ artist: 'Autechre', title: 'Fold4,Wrap5' }
 			],
 			matchBuckets: null,
-			importPlaylist: null
+			matchedCount: 0,
+			importPlaylist: null,
+			importPlaylistWriteStatus: null
 		});
 		expect(ingest.validationErrors).toEqual([
 			{

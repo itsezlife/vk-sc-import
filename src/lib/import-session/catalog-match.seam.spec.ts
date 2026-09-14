@@ -121,4 +121,76 @@ describe('Import Session Catalog Match seam', () => {
 	it('rejects Catalog Match when no Import Session exists', async () => {
 		await expect(api.runCatalogMatch()).rejects.toThrow(/session/i);
 	});
+
+	it('persists Match Records as they complete and resumes after abort', async () => {
+		await loadLibrary();
+		gateway.setCatalog([
+			{ id: 'sc-xtal', artist: 'Aphex Twin', title: 'Xtal' },
+			{ id: 'sc-arch-a', artist: 'Burial', title: 'Archangel' },
+			{ id: 'sc-arch-b', artist: 'Burial', title: 'Archangel' }
+		]);
+
+		const controller = new AbortController();
+		await expect(
+			api.runCatalogMatch({
+				paceMs: 0,
+				signal: controller.signal,
+				onProgress: (event) => {
+					if (event.completed === 1) {
+						controller.abort();
+					}
+				}
+			})
+		).rejects.toMatchObject({ name: 'AbortError' });
+
+		const mid = await createSessionFileStore(dataDir).read();
+		expect(mid?.matchRecords).toHaveLength(1);
+		expect(mid?.matchRecords[0]?.libraryTrack.title).toBe('Xtal');
+
+		const searchesBeforeResume = gateway.calls.filter((name) => name === 'searchTracks').length;
+		expect(searchesBeforeResume).toBe(1);
+
+		const result = await api.runCatalogMatch({ paceMs: 0 });
+		expect(result.matchBuckets).toEqual({
+			auto: 1,
+			accepted: 0,
+			ambiguous: 1,
+			unresolved: 1
+		});
+		expect(result.session.matchedCount).toBe(3);
+
+		const searchesAfterResume = gateway.calls.filter((name) => name === 'searchTracks').length;
+		expect(searchesAfterResume).toBe(3);
+
+		const onDisk = await createSessionFileStore(dataDir).read();
+		expect(onDisk?.matchRecords).toHaveLength(3);
+	});
+
+	it('exports Unresolved and full Match Records without mutating the Session File', async () => {
+		await loadLibrary();
+		gateway.setCatalog([
+			{ id: 'sc-xtal', artist: 'Aphex Twin', title: 'Xtal' },
+			{ id: 'sc-arch-a', artist: 'Burial', title: 'Archangel' },
+			{ id: 'sc-arch-b', artist: 'Burial', title: 'Archangel' }
+		]);
+		await api.runCatalogMatch({ paceMs: 0 });
+
+		const before = await createSessionFileStore(dataDir).read();
+		const unresolved = await api.exportUnresolved(new Date('2026-09-14T12:00:00.000Z'));
+		const full = await api.exportMatchRecords(new Date('2026-09-14T12:00:00.000Z'));
+
+		expect(unresolved.document.kind).toBe('unresolved');
+		expect(unresolved.document.tracks).toHaveLength(1);
+		expect(unresolved.filename).toBe('unresolved-tracks.json');
+		expect(JSON.parse(unresolved.body).tracks[0].libraryTrack.title).toBe(
+			'Missing From Catalog'
+		);
+
+		expect(full.document.kind).toBe('match-records');
+		expect(full.document.records).toHaveLength(3);
+		expect(full.filename).toBe('match-records.json');
+
+		const after = await createSessionFileStore(dataDir).read();
+		expect(after).toEqual(before);
+	});
 });

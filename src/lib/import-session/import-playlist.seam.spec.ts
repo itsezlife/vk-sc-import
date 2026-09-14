@@ -137,18 +137,62 @@ describe('Import Session Import Playlist write seam', () => {
 		await expect(api.writeImportPlaylist({ paceMs: 0 })).rejects.toThrow(/bound/i);
 	});
 
-	it('rejects a second write when the Session already has an Import Playlist', async () => {
+	it('idempotently reuses the Import Playlist on a second write (accidental double-start)', async () => {
 		await seedBoundMatches();
-		await api.writeImportPlaylist({
+		const first = await api.writeImportPlaylist({
 			paceMs: 0,
 			now: new Date('2026-09-14T12:00:00.000Z')
 		});
 
+		const second = await api.writeImportPlaylist({
+			paceMs: 0,
+			now: new Date('2026-09-15T12:00:00.000Z')
+		});
+
+		expect(second.importPlaylist.id).toBe(first.importPlaylist.id);
+		expect(second.importPlaylist.title).toBe(first.importPlaylist.title);
+		expect(second.session.importPlaylistWriteStatus).toBe('complete');
+		expect(gateway.calls.filter((name) => name === 'createPlaylist')).toHaveLength(1);
+		expect(gateway.playlistTrackIds(first.importPlaylist.id)).toEqual([
+			'sc-xtal',
+			'sc-arch-a'
+		]);
+	});
+
+	it('keeps playlist identity on abort and resumes membership without creating a second playlist', async () => {
+		await seedBoundMatches();
+		const controller = new AbortController();
+		let progressHits = 0;
+
 		await expect(
 			api.writeImportPlaylist({
 				paceMs: 0,
-				now: new Date('2026-09-15T12:00:00.000Z')
+				now: new Date('2026-09-14T12:00:00.000Z'),
+				signal: controller.signal,
+				onProgress: () => {
+					progressHits += 1;
+					if (progressHits === 1) {
+						controller.abort();
+					}
+				}
 			})
-		).rejects.toThrow(/already/i);
+		).rejects.toMatchObject({ name: 'AbortError' });
+
+		const mid = await createSessionFileStore(dataDir).read();
+		expect(mid?.importPlaylist?.id).toBeTruthy();
+		expect(mid?.importPlaylistWriteStatus).toBe('in_progress');
+		expect(gateway.calls.filter((name) => name === 'createPlaylist')).toHaveLength(1);
+
+		const resumed = await api.writeImportPlaylist({
+			paceMs: 0,
+			now: new Date('2026-09-14T12:00:00.000Z')
+		});
+		expect(resumed.importPlaylist.id).toBe(mid!.importPlaylist!.id);
+		expect(resumed.session.importPlaylistWriteStatus).toBe('complete');
+		expect(gateway.calls.filter((name) => name === 'createPlaylist')).toHaveLength(1);
+		expect(gateway.playlistTrackIds(resumed.importPlaylist.id)).toEqual([
+			'sc-xtal',
+			'sc-arch-a'
+		]);
 	});
 });

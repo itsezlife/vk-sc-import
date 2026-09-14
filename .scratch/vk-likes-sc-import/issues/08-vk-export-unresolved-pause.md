@@ -6,9 +6,9 @@
 
 **Status:** ready-for-agent
 
-- [ ] README/docs: bookmarklet or DevTools snippet producing library JSON for VK likes
-- [ ] Fallback library JSON/CSV template documented
-- [ ] Export Unresolved list (and optional full Match Records) to a downloadable file
-- [ ] Pause/cancel match or playlist write without corrupting Session File
-- [ ] Documented/implemented pacing suitable for 1000+ Catalog Match + playlist adds
-- [ ] Idempotent-ish re-run / resume behavior described for accidental double-start
+- [x] README/docs: bookmarklet or DevTools snippet producing library JSON for VK likes
+- [x] Fallback library JSON/CSV template documented
+- [x] Export Unresolved list (and optional full Match Records) to a downloadable file
+- [x] Pause/cancel match or playlist write without corrupting Session File
+- [x] Documented/implemented pacing suitable for 1000+ Catalog Match + playlist adds
+- [x] Idempotent-ish re-run / resume behavior described for accidental double-start

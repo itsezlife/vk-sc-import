@@ -55,10 +55,16 @@
 		key: MessageKey;
 		params?: Record<string, string | number>;
 	} | null>(null);
+	let matchAbort = $state<AbortController | null>(null);
 
 	let playlistBusy = $state(false);
 	let playlistProgress = $state<{ completed: number; total: number } | null>(null);
 	let playlistNotice = $state<{
+		key: MessageKey;
+		params?: Record<string, string | number>;
+	} | null>(null);
+	let playlistAbort = $state<AbortController | null>(null);
+	let exportNotice = $state<{
 		key: MessageKey;
 		params?: Record<string, string | number>;
 	} | null>(null);
@@ -79,15 +85,20 @@
 	const playlistMessage = $derived(
 		playlistNotice ? t(playlistNotice.key, playlistNotice.params, locale) : null
 	);
+	const exportMessage = $derived(
+		exportNotice ? t(exportNotice.key, exportNotice.params, locale) : null
+	);
 	const matchResolutionKey = $derived(
 		sessionSummary?.matchBuckets
 			? [
 					sessionSummary.trackCount,
+					sessionSummary.matchedCount,
 					sessionSummary.matchBuckets.auto,
 					sessionSummary.matchBuckets.accepted,
 					sessionSummary.matchBuckets.ambiguous,
 					sessionSummary.matchBuckets.unresolved,
-					sessionSummary.importPlaylist?.id ?? ''
+					sessionSummary.importPlaylist?.id ?? '',
+					sessionSummary.importPlaylistWriteStatus ?? ''
 				].join(':')
 			: null
 	);
@@ -96,11 +107,31 @@
 			? sessionSummary.matchBuckets.auto + sessionSummary.matchBuckets.accepted
 			: 0
 	);
+	const playlistWriteIncomplete = $derived(
+		sessionSummary?.importPlaylist != null &&
+			sessionSummary.importPlaylistWriteStatus === 'in_progress'
+	);
+	const playlistWriteComplete = $derived(
+		sessionSummary?.importPlaylist != null &&
+			sessionSummary.importPlaylistWriteStatus === 'complete'
+	);
 	const canWritePlaylist = $derived(
-		boundMatchCount > 0 && sessionSummary?.importPlaylist == null && !matchBusy
+		boundMatchCount > 0 &&
+			!matchBusy &&
+			sessionSummary != null &&
+			sessionSummary.matchedCount === sessionSummary.trackCount &&
+			(sessionSummary.importPlaylist == null || playlistWriteIncomplete)
+	);
+	const matchIncomplete = $derived(
+		sessionSummary != null &&
+			sessionSummary.matchedCount > 0 &&
+			sessionSummary.matchedCount < sessionSummary.trackCount
+	);
+	const canExportMatches = $derived(
+		(sessionSummary?.matchedCount ?? 0) > 0 && !matchBusy && !playlistBusy
 	);
 	const reviewSessionKey = $derived(
-		sessionSummary?.importPlaylist && sessionSummary.matchBuckets
+		playlistWriteComplete && sessionSummary?.importPlaylist && sessionSummary.matchBuckets
 			? [
 					sessionSummary.importPlaylist.id,
 					sessionSummary.matchBuckets.auto,
@@ -247,11 +278,19 @@
 		matchBusy = true;
 		matchNotice = null;
 		matchProgress = sessionSummary
-			? { completed: 0, total: sessionSummary.trackCount }
+			? {
+					completed: sessionSummary.matchedCount,
+					total: sessionSummary.trackCount
+				}
 			: null;
+		const controller = new AbortController();
+		matchAbort = controller;
 
 		try {
-			const response = await fetch('/api/session/match', { method: 'POST' });
+			const response = await fetch('/api/session/match', {
+				method: 'POST',
+				signal: controller.signal
+			});
 			if (!response.ok || !response.body) {
 				matchNotice = {
 					key: 'match.failed',
@@ -289,6 +328,7 @@
 								session: ImportSessionSummary;
 								matchBuckets: MatchBucketsSummary;
 						  }
+						| { type: 'aborted' }
 						| { type: 'error'; message: string };
 
 					if (event.type === 'progress') {
@@ -299,7 +339,7 @@
 					} else if (event.type === 'done') {
 						applySession(event.session);
 						matchProgress = {
-							completed: event.session.trackCount,
+							completed: event.session.matchedCount,
 							total: event.session.trackCount
 						};
 						matchNotice = {
@@ -311,6 +351,15 @@
 								unresolved: event.matchBuckets.unresolved
 							}
 						};
+					} else if (event.type === 'aborted') {
+						await restoreSessionQuietly();
+						matchNotice = {
+							key: 'match.paused',
+							params: {
+								completed: matchProgress?.completed ?? 0,
+								total: matchProgress?.total ?? sessionSummary?.trackCount ?? 0
+							}
+						};
 					} else if (event.type === 'error') {
 						matchNotice = {
 							key: 'match.failed',
@@ -320,16 +369,32 @@
 				}
 			}
 		} catch (error) {
-			console.error('[+page] Failed to run Catalog Match', error);
-			matchNotice = {
-				key: 'match.failed',
-				params: {
-					message: error instanceof Error ? error.message : 'unknown'
-				}
-			};
+			if (controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')) {
+				await restoreSessionQuietly();
+				matchNotice = {
+					key: 'match.paused',
+					params: {
+						completed: matchProgress?.completed ?? 0,
+						total: matchProgress?.total ?? sessionSummary?.trackCount ?? 0
+					}
+				};
+			} else {
+				console.error('[+page] Failed to run Catalog Match', error);
+				matchNotice = {
+					key: 'match.failed',
+					params: {
+						message: error instanceof Error ? error.message : 'unknown'
+					}
+				};
+			}
 		} finally {
 			matchBusy = false;
+			matchAbort = null;
 		}
+	}
+
+	function cancelCatalogMatch() {
+		matchAbort?.abort();
 	}
 
 	async function writeImportPlaylist() {
@@ -337,9 +402,14 @@
 		playlistNotice = null;
 		playlistProgress =
 			boundMatchCount > 0 ? { completed: 0, total: boundMatchCount } : null;
+		const controller = new AbortController();
+		playlistAbort = controller;
 
 		try {
-			const response = await fetch('/api/session/playlist', { method: 'POST' });
+			const response = await fetch('/api/session/playlist', {
+				method: 'POST',
+				signal: controller.signal
+			});
 			if (!response.ok || !response.body) {
 				playlistNotice = {
 					key: 'playlist.failed',
@@ -379,6 +449,7 @@
 								writtenCount: number;
 								alreadyOnScCount: number;
 						  }
+						| { type: 'aborted' }
 						| { type: 'error'; message: string };
 
 					if (event.type === 'progress') {
@@ -400,6 +471,9 @@
 								alreadyOnSc: event.alreadyOnScCount
 							}
 						};
+					} else if (event.type === 'aborted') {
+						await restoreSessionQuietly();
+						playlistNotice = { key: 'playlist.paused' };
 					} else if (event.type === 'error') {
 						playlistNotice = {
 							key: 'playlist.failed',
@@ -409,15 +483,73 @@
 				}
 			}
 		} catch (error) {
-			console.error('[+page] Failed to write Import Playlist', error);
-			playlistNotice = {
-				key: 'playlist.failed',
+			if (controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')) {
+				await restoreSessionQuietly();
+				playlistNotice = { key: 'playlist.paused' };
+			} else {
+				console.error('[+page] Failed to write Import Playlist', error);
+				playlistNotice = {
+					key: 'playlist.failed',
+					params: {
+						message: error instanceof Error ? error.message : 'unknown'
+					}
+				};
+			}
+		} finally {
+			playlistBusy = false;
+			playlistAbort = null;
+		}
+	}
+
+	function cancelImportPlaylistWrite() {
+		playlistAbort?.abort();
+	}
+
+	async function restoreSessionQuietly() {
+		try {
+			const response = await fetch('/api/session');
+			if (!response.ok) {
+				return;
+			}
+			const body = (await response.json()) as { session: ImportSessionSummary | null };
+			applySession(body.session);
+		} catch (error) {
+			console.error('[+page] Failed to refresh Import Session after pause', error);
+		}
+	}
+
+	async function downloadExport(scope: 'unresolved' | 'all') {
+		exportNotice = null;
+		try {
+			const response = await fetch(`/api/session/export?scope=${scope}`);
+			if (!response.ok) {
+				const body = (await response.json().catch(() => null)) as { message?: string } | null;
+				exportNotice = {
+					key: 'export.failed',
+					params: { message: body?.message ?? `HTTP ${response.status}` }
+				};
+				return;
+			}
+			const blob = await response.blob();
+			const disposition = response.headers.get('content-disposition') ?? '';
+			const matched = /filename="([^"]+)"/.exec(disposition);
+			const filename =
+				matched?.[1] ??
+				(scope === 'all' ? 'match-records.json' : 'unresolved-tracks.json');
+			const url = URL.createObjectURL(blob);
+			const anchor = document.createElement('a');
+			anchor.href = url;
+			anchor.download = filename;
+			anchor.click();
+			URL.revokeObjectURL(url);
+		} catch (error) {
+			console.error('[+page] Failed to export Match Records', error);
+			exportNotice = {
+				key: 'export.failed',
 				params: {
 					message: error instanceof Error ? error.message : 'unknown'
 				}
 			};
-		} finally {
-			playlistBusy = false;
 		}
 	}
 
@@ -461,6 +593,7 @@
 				matchProgress = null;
 				playlistNotice = null;
 				playlistProgress = null;
+				exportNotice = null;
 				ingestNotice = {
 					key: 'library.ingestOk',
 					pluralCount: body.session.trackCount
@@ -491,6 +624,7 @@
 			matchProgress = null;
 			playlistNotice = null;
 			playlistProgress = null;
+			exportNotice = null;
 			libraryDraft = '';
 			ingestNotice = { key: 'library.clearOk' };
 		} catch (error) {
@@ -743,14 +877,34 @@
 							</p>
 						{/if}
 
-						<button
-							type="button"
-							class="ui-btn ui-btn-primary inline-flex w-full items-center justify-center rounded-lg border border-teal-800/25 bg-teal-700 px-3.5 py-2 text-sm font-medium text-white disabled:opacity-60 sm:w-auto"
-							disabled={matchBusy}
-							onclick={runCatalogMatch}
-						>
-							{matchBusy ? t('match.running') : t('match.run')}
-						</button>
+						{#if matchIncomplete && sessionSummary}
+							<p class="m-0 text-amber-900">
+								{t('match.resumeHint', {
+									completed: sessionSummary.matchedCount,
+									total: sessionSummary.trackCount
+								})}
+							</p>
+						{/if}
+
+						<div class="flex flex-wrap gap-2">
+							<button
+								type="button"
+								class="ui-btn ui-btn-primary inline-flex w-full items-center justify-center rounded-lg border border-teal-800/25 bg-teal-700 px-3.5 py-2 text-sm font-medium text-white disabled:opacity-60 sm:w-auto"
+								disabled={matchBusy || playlistBusy}
+								onclick={runCatalogMatch}
+							>
+								{matchBusy ? t('match.running') : t('match.run')}
+							</button>
+							{#if matchBusy}
+								<button
+									type="button"
+									class="ui-btn inline-flex w-full items-center justify-center rounded-lg border border-slate-900/15 bg-white px-3.5 py-2 text-sm font-medium text-slate-800 sm:w-auto"
+									onclick={cancelCatalogMatch}
+								>
+									{t('match.cancel')}
+								</button>
+							{/if}
+						</div>
 
 						{#if matchBusy && matchProgress}
 							<div class="ui-busy" aria-live="polite" aria-busy="true">
@@ -767,6 +921,28 @@
 						{#if matchMessage}
 							<p class="ui-fade-in m-0 text-emerald-900" role="status">{matchMessage}</p>
 						{/if}
+
+						{#if canExportMatches}
+							<div class="flex flex-wrap gap-2">
+								<button
+									type="button"
+									class="ui-btn inline-flex items-center justify-center rounded-lg border border-slate-900/15 bg-white px-3 py-1.5 text-sm font-medium text-slate-800"
+									onclick={() => downloadExport('unresolved')}
+								>
+									{t('export.unresolved')}
+								</button>
+								<button
+									type="button"
+									class="ui-btn inline-flex items-center justify-center rounded-lg border border-slate-900/15 bg-white px-3 py-1.5 text-sm font-medium text-slate-800"
+									onclick={() => downloadExport('all')}
+								>
+									{t('export.matchRecords')}
+								</button>
+							</div>
+							{#if exportMessage}
+								<p class="ui-fade-in m-0 text-amber-950" role="status">{exportMessage}</p>
+							{/if}
+						{/if}
 					</div>
 				{/if}
 
@@ -775,12 +951,12 @@
 					onSessionChange={applySession}
 				/>
 
-				{#if canWritePlaylist || sessionSummary?.importPlaylist || playlistBusy || playlistMessage}
+				{#if canWritePlaylist || playlistWriteComplete || playlistBusy || playlistMessage}
 					<div
 						class="ui-fade-in mt-5 grid gap-3 rounded-lg border border-slate-900/10 bg-white/85 px-3.5 py-3 text-sm text-slate-800"
 						role="status"
 					>
-						{#if sessionSummary?.importPlaylist}
+						{#if playlistWriteComplete && sessionSummary?.importPlaylist}
 							<p class="m-0 text-emerald-800">
 								{t('playlist.written', { title: sessionSummary.importPlaylist.title })}
 								{#if sessionSummary.importPlaylist.permalinkUrl}
@@ -796,14 +972,29 @@
 								{/if}
 							</p>
 						{:else if canWritePlaylist}
-							<button
-								type="button"
-								class="ui-btn ui-btn-primary inline-flex w-full items-center justify-center rounded-lg border border-teal-800/25 bg-teal-700 px-3.5 py-2 text-sm font-medium text-white disabled:opacity-60 sm:w-auto"
-								disabled={playlistBusy}
-								onclick={writeImportPlaylist}
-							>
-								{playlistBusy ? t('playlist.writing') : t('playlist.write')}
-							</button>
+							<div class="flex flex-wrap gap-2">
+								<button
+									type="button"
+									class="ui-btn ui-btn-primary inline-flex w-full items-center justify-center rounded-lg border border-teal-800/25 bg-teal-700 px-3.5 py-2 text-sm font-medium text-white disabled:opacity-60 sm:w-auto"
+									disabled={playlistBusy || matchBusy}
+									onclick={writeImportPlaylist}
+								>
+									{playlistBusy
+										? t('playlist.writing')
+										: playlistWriteIncomplete
+											? t('playlist.resume')
+											: t('playlist.write')}
+								</button>
+								{#if playlistBusy}
+									<button
+										type="button"
+										class="ui-btn inline-flex w-full items-center justify-center rounded-lg border border-slate-900/15 bg-white px-3.5 py-2 text-sm font-medium text-slate-800 sm:w-auto"
+										onclick={cancelImportPlaylistWrite}
+									>
+										{t('playlist.cancel')}
+									</button>
+								{/if}
+							</div>
 						{/if}
 
 						{#if playlistBusy && playlistProgress}

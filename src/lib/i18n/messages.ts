@@ -63,10 +63,16 @@ export type MessageKey =
 	| 'library.clearFailed'
 	| 'match.run'
 	| 'match.running'
+	| 'match.cancel'
 	| 'match.progress'
 	| 'match.done'
+	| 'match.paused'
 	| 'match.failed'
 	| 'match.buckets'
+	| 'match.resumeHint'
+	| 'export.unresolved'
+	| 'export.matchRecords'
+	| 'export.failed'
 	| 'resolve.headline'
 	| 'resolve.summary'
 	| 'resolve.empty'
@@ -90,9 +96,12 @@ export type MessageKey =
 	| 'resolve.failed'
 	| 'resolve.queueProgress'
 	| 'playlist.write'
+	| 'playlist.resume'
 	| 'playlist.writing'
+	| 'playlist.cancel'
 	| 'playlist.progress'
 	| 'playlist.done'
+	| 'playlist.paused'
 	| 'playlist.failed'
 	| 'playlist.written'
 	| 'review.headline'
@@ -197,12 +206,19 @@ const ru: MessageCatalog = {
 	'library.clearFailed': 'Не удалось очистить Source Library.',
 	'match.run': 'Запустить Catalog Match',
 	'match.running': 'Идёт Catalog Match…',
+	'match.cancel': 'Пауза / отмена',
 	'match.progress': 'Сопоставлено {completed} из {total}',
 	'match.done':
 		'Catalog Match готов: Auto {auto}, Accepted {accepted}, Ambiguous {ambiguous}, Unresolved {unresolved}.',
+	'match.paused':
+		'Catalog Match приостановлен — прогресс сохранён ({completed} из {total}). Запустите снова, чтобы продолжить.',
 	'match.failed': 'Не удалось выполнить Catalog Match: {message}',
 	'match.buckets':
 		'Match Records — Auto: {auto}, Accepted: {accepted}, Ambiguous: {ambiguous}, Unresolved: {unresolved}',
+	'match.resumeHint': 'Незавершённый Catalog Match: {completed} из {total}. Запуск продолжит с места остановки.',
+	'export.unresolved': 'Экспорт Unresolved',
+	'export.matchRecords': 'Экспорт Match Records',
+	'export.failed': 'Не удалось экспортировать: {message}',
 	'resolve.headline': 'Match Resolution',
 	'resolve.summary':
 		'Ambiguous и Unresolved: послушайте кандидатов, выберите, найдите на SoundCloud или пропустите.',
@@ -228,10 +244,14 @@ const ru: MessageCatalog = {
 	'resolve.failed': 'Не удалось обновить Match Record: {message}',
 	'resolve.queueProgress': 'В очереди: {count}',
 	'playlist.write': 'Записать Import Playlist',
+	'playlist.resume': 'Продолжить Import Playlist',
 	'playlist.writing': 'Пишем Import Playlist…',
+	'playlist.cancel': 'Пауза / отмена',
 	'playlist.progress': 'Добавлено {completed} из {total}',
 	'playlist.done':
 		'Import Playlist «{title}»: {written} треков, уже на SoundCloud: {alreadyOnSc}.',
+	'playlist.paused':
+		'Запись Import Playlist приостановлена — плейлист и прогресс сохранены. Продолжите, когда будете готовы.',
 	'playlist.failed': 'Не удалось записать Import Playlist: {message}',
 	'playlist.written': 'Import Playlist записан: {title}',
 	'review.headline': 'Review Match Records',
@@ -340,12 +360,20 @@ const en: MessageCatalog = {
 	'library.clearFailed': 'Could not clear the Source Library.',
 	'match.run': 'Run Catalog Match',
 	'match.running': 'Running Catalog Match…',
+	'match.cancel': 'Pause / cancel',
 	'match.progress': 'Matched {completed} of {total}',
 	'match.done':
 		'Catalog Match complete: Auto {auto}, Accepted {accepted}, Ambiguous {ambiguous}, Unresolved {unresolved}.',
+	'match.paused':
+		'Catalog Match paused — progress kept ({completed} of {total}). Run again to resume.',
 	'match.failed': 'Catalog Match failed: {message}',
 	'match.buckets':
 		'Match Records — Auto: {auto}, Accepted: {accepted}, Ambiguous: {ambiguous}, Unresolved: {unresolved}',
+	'match.resumeHint':
+		'Incomplete Catalog Match: {completed} of {total}. Running again resumes from the stop point.',
+	'export.unresolved': 'Export Unresolved',
+	'export.matchRecords': 'Export Match Records',
+	'export.failed': 'Export failed: {message}',
 	'resolve.headline': 'Match Resolution',
 	'resolve.summary':
 		'Work Ambiguous and Unresolved: listen to candidates, pick one, search SoundCloud, or skip.',
@@ -371,10 +399,14 @@ const en: MessageCatalog = {
 	'resolve.failed': 'Could not update Match Record: {message}',
 	'resolve.queueProgress': '{count} in queue',
 	'playlist.write': 'Write Import Playlist',
+	'playlist.resume': 'Resume Import Playlist',
 	'playlist.writing': 'Writing Import Playlist…',
+	'playlist.cancel': 'Pause / cancel',
 	'playlist.progress': 'Added {completed} of {total}',
 	'playlist.done':
 		'Import Playlist “{title}”: {written} tracks, already on SoundCloud: {alreadyOnSc}.',
+	'playlist.paused':
+		'Import Playlist write paused — playlist identity and progress kept. Resume when ready.',
 	'playlist.failed': 'Import Playlist write failed: {message}',
 	'playlist.written': 'Import Playlist written: {title}',
 	'review.headline': 'Review Match Records',
