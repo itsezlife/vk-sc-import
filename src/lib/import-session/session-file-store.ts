@@ -14,17 +14,14 @@
 
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import {
-	parseImportPlaylist,
-	type ImportPlaylist
-} from '$lib/soundcloud/import-playlist';
+import { parseImportPlaylist, type ImportPlaylist } from '$lib/soundcloud/import-playlist';
 import {
 	SESSION_FILE_VERSION,
 	type ImportPlaylistWriteStatus,
 	type ImportSession
 } from './import-session';
 import type { LibraryTrack } from './library-track';
-import type { MatchRecord } from './match-record';
+import type { MatchRecord, ResolutionQueueItem } from './match-record';
 import { parseSoundCloudTrack, type SoundCloudTrack } from '$lib/soundcloud/soundcloud-track';
 
 export type SessionFileStore = {
@@ -153,6 +150,8 @@ function parseSessionFile(raw: string): ImportSession | null {
 		importPlaylistWriteStatus = record.importPlaylistWriteStatus;
 	}
 
+	const resolutionHistory = parseResolutionHistory(record.resolutionHistory, matchRecords.length);
+
 	return {
 		version: SESSION_FILE_VERSION,
 		createdAt: record.createdAt,
@@ -160,8 +159,39 @@ function parseSessionFile(raw: string): ImportSession | null {
 		libraryTracks,
 		matchRecords,
 		...(importPlaylist ? { importPlaylist } : {}),
-		...(importPlaylistWriteStatus ? { importPlaylistWriteStatus } : {})
+		...(importPlaylistWriteStatus ? { importPlaylistWriteStatus } : {}),
+		...(resolutionHistory.length > 0 ? { resolutionHistory } : {})
 	};
+}
+
+/**
+ * Lenient on purpose: unlike Match Records, a damaged undo stack must not make
+ * the whole Session File read as "no session" — the worst case is losing Back.
+ */
+function parseResolutionHistory(raw: unknown, matchCount: number): ResolutionQueueItem[] {
+	if (!Array.isArray(raw)) {
+		return [];
+	}
+	const entries: ResolutionQueueItem[] = [];
+	for (const row of raw) {
+		if (row === null || typeof row !== 'object') {
+			return [];
+		}
+		const { matchIndex, record } = row as { matchIndex?: unknown; record?: unknown };
+		const parsed = parseMatchRecord(record);
+		if (
+			typeof matchIndex !== 'number' ||
+			!Number.isInteger(matchIndex) ||
+			matchIndex < 0 ||
+			matchIndex >= matchCount ||
+			!parsed ||
+			(parsed.classification !== 'ambiguous' && parsed.classification !== 'unresolved')
+		) {
+			return [];
+		}
+		entries.push({ matchIndex, record: parsed });
+	}
+	return entries;
 }
 
 function parseLibraryTrack(row: unknown): LibraryTrack | null {

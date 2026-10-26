@@ -95,6 +95,25 @@ export type MessageKey =
 	| 'resolve.busy'
 	| 'resolve.failed'
 	| 'resolve.queueProgress'
+	| 'resolve.keyChoose'
+	| 'resolve.keySubmit'
+	| 'resolve.keyListen'
+	| 'resolve.keySeek'
+	| 'resolve.keySkip'
+	| 'resolve.keyBack'
+	| 'resolve.back'
+	| 'resolve.decidedShow'
+	| 'resolve.decidedHide'
+	| 'resolve.decidedFilter'
+	| 'resolve.decidedLoading'
+	| 'resolve.decidedNoMatch'
+	| 'resolve.decidedAccepted'
+	| 'resolve.decidedSkipped'
+	| 'resolve.decidedShown'
+	| 'resolve.reopen'
+	| 'resolve.reopenLocked'
+	| 'resolve.keySearch'
+	| 'resolve.keyOpen'
 	| 'playlist.write'
 	| 'playlist.resume'
 	| 'playlist.writing'
@@ -147,8 +166,7 @@ const ru: MessageCatalog = {
 	'status.needed': 'Нужно',
 	'status.soon': 'скоро',
 	'shell.restoringHeadline': 'Восстановление…',
-	'shell.restoringSummary':
-		'Читаем локальное подключение SoundCloud и Import Session с диска.',
+	'shell.restoringSummary': 'Читаем локальное подключение SoundCloud и Import Session с диска.',
 	'shell.restoring': 'Загрузка сохранённого состояния',
 	'soundcloud.connect': 'Подключить SoundCloud',
 	'soundcloud.connecting': 'Переход к SoundCloud…',
@@ -161,12 +179,9 @@ const ru: MessageCatalog = {
 	'soundcloud.restoreFailed': 'Не удалось восстановить подключение SoundCloud.',
 	'soundcloud.errorAuthorizeDenied': 'Вход в SoundCloud отклонён.',
 	'soundcloud.errorMissingCode': 'SoundCloud не вернул код авторизации.',
-	'soundcloud.errorCompleteFailed':
-		'Не удалось завершить вход в SoundCloud. Попробуйте ещё раз.',
-	'guidance.connectDetail':
-		'Войдите, чтобы записывать совпадения в ваш Import Playlist.',
-	'guidance.libraryDetail':
-		'Загрузите лайки ВК как Source Library — строки artist + title.',
+	'soundcloud.errorCompleteFailed': 'Не удалось завершить вход в SoundCloud. Попробуйте ещё раз.',
+	'guidance.connectDetail': 'Войдите, чтобы записывать совпадения в ваш Import Playlist.',
+	'guidance.libraryDetail': 'Загрузите лайки ВК как Source Library — строки artist + title.',
 	'guidance.stepConnect': 'Подключить SoundCloud',
 	'guidance.stepLibrary': 'Загрузить Source Library',
 	'guidance.readyHeadline': 'Готово к каталожному сопоставлению',
@@ -181,8 +196,7 @@ const ru: MessageCatalog = {
 	'guidance.needConnectHeadline': 'Подключите SoundCloud',
 	'guidance.needConnectSummary':
 		'Source Library загружена. Подключите SoundCloud перед записью Import Playlist.',
-	'guidance.readyBanner':
-		'Можно запускать каталожное сопоставление.',
+	'guidance.readyBanner': 'Можно запускать каталожное сопоставление.',
 	'library.format': 'Формат',
 	'library.upload': 'Загрузить файл',
 	'library.paste': 'Или вставьте Source Library',
@@ -195,10 +209,8 @@ const ru: MessageCatalog = {
 	'library.ingestOk': 'Загружено Library Track: {count}.',
 	'library.ingestNoValid':
 		'Нет валидных Library Track — существующая Import Session (если была) не изменена.',
-	'library.restoreHttpError':
-		'Не удалось восстановить Import Session (HTTP {status}).',
-	'library.restoreFailed':
-		'Не удалось восстановить Import Session через локальный API.',
+	'library.restoreHttpError': 'Не удалось восстановить Import Session (HTTP {status}).',
+	'library.restoreFailed': 'Не удалось восстановить Import Session через локальный API.',
 	'library.ingestFailed': 'Не удалось обратиться к локальному Import Session API.',
 	'library.clear': 'Очистить Source Library',
 	'library.clearing': 'Очистка…',
@@ -215,7 +227,8 @@ const ru: MessageCatalog = {
 	'match.failed': 'Не удалось выполнить Catalog Match: {message}',
 	'match.buckets':
 		'Match Records — Auto: {auto}, Accepted: {accepted}, Ambiguous: {ambiguous}, Unresolved: {unresolved}',
-	'match.resumeHint': 'Незавершённый Catalog Match: {completed} из {total}. Запуск продолжит с места остановки.',
+	'match.resumeHint':
+		'Незавершённый Catalog Match: {completed} из {total}. Запуск продолжит с места остановки.',
 	'export.unresolved': 'Экспорт Unresolved',
 	'export.matchRecords': 'Экспорт Match Records',
 	'export.failed': 'Не удалось экспортировать: {message}',
@@ -232,8 +245,7 @@ const ru: MessageCatalog = {
 	'resolve.openOnSoundCloud': 'Открыть в SoundCloud',
 	'resolve.noListen': 'Нет превью и ссылки',
 	'resolve.previewLoading': 'Загрузка превью…',
-	'resolve.previewUnavailable':
-		'Превью недоступно в приложении — откройте трек в SoundCloud.',
+	'resolve.previewUnavailable': 'Превью недоступно в приложении — откройте трек в SoundCloud.',
 	'resolve.searchLabel': 'Поиск SoundCloud',
 	'resolve.searchPlaceholder': 'artist title',
 	'resolve.search': 'Искать',
@@ -243,13 +255,31 @@ const ru: MessageCatalog = {
 	'resolve.busy': 'Сохраняем…',
 	'resolve.failed': 'Не удалось обновить Match Record: {message}',
 	'resolve.queueProgress': 'В очереди: {count}',
+	'resolve.keyChoose': 'выбрать трек',
+	'resolve.keySubmit': 'подтвердить',
+	'resolve.keyListen': 'слушать / стоп',
+	'resolve.keySeek': 'перемотка (Shift — ×3)',
+	'resolve.keySkip': 'пропустить',
+	'resolve.keyBack': 'вернуть предыдущий',
+	'resolve.back': '← Предыдущий',
+	'resolve.decidedShow': 'Разобранные треки ({count})',
+	'resolve.decidedHide': 'Скрыть разобранные',
+	'resolve.decidedFilter': 'Фильтр: artist или title',
+	'resolve.decidedLoading': 'Загружаем…',
+	'resolve.decidedNoMatch': 'Ничего не подходит под фильтр',
+	'resolve.decidedAccepted': 'Accepted',
+	'resolve.decidedSkipped': 'Пропущен',
+	'resolve.decidedShown': 'Показано {shown} из {total}',
+	'resolve.reopen': 'Вернуть в очередь',
+	'resolve.reopenLocked': 'Уже в Import Playlist — используйте Rematch',
+	'resolve.keySearch': 'поиск',
+	'resolve.keyOpen': 'открыть в SoundCloud',
 	'playlist.write': 'Записать Import Playlist',
 	'playlist.resume': 'Продолжить Import Playlist',
 	'playlist.writing': 'Пишем Import Playlist…',
 	'playlist.cancel': 'Пауза / отмена',
 	'playlist.progress': 'Добавлено {completed} из {total}',
-	'playlist.done':
-		'Import Playlist «{title}»: {written} треков, уже на SoundCloud: {alreadyOnSc}.',
+	'playlist.done': 'Import Playlist «{title}»: {written} треков, уже на SoundCloud: {alreadyOnSc}.',
 	'playlist.paused':
 		'Запись Import Playlist приостановлена — плейлист и прогресс сохранены. Продолжите, когда будете готовы.',
 	'playlist.failed': 'Не удалось записать Import Playlist: {message}',
@@ -275,14 +305,12 @@ const ru: MessageCatalog = {
 	'menu.copyArtist': 'Копировать исполнителя',
 	'menu.copyTitle': 'Копировать название',
 	'menu.copyLine': 'Копировать строку',
-	'error.library_track_requires_artist_title':
-		'У Library Track нужны artist и title',
+	'error.library_track_requires_artist_title': 'У Library Track нужны artist и title',
 	'error.source_library_json_invalid': 'JSON Source Library некорректен',
 	'error.source_library_json_shape':
 		'JSON Source Library должен быть массивом треков или { "tracks": [...] }',
 	'error.source_library_csv_empty': 'CSV Source Library пуст',
-	'error.source_library_csv_headers':
-		'В CSV Source Library нужны колонки artist и title',
+	'error.source_library_csv_headers': 'В CSV Source Library нужны колонки artist и title',
 	'error.request_body_must_be_json': 'Тело запроса должно быть JSON',
 	'error.format_must_be_json_or_csv': 'format должен быть "json" или "csv"',
 	'error.content_must_be_string': 'content должен быть строкой'
@@ -291,8 +319,7 @@ const ru: MessageCatalog = {
 const en: MessageCatalog = {
 	'meta.description':
 		'Local catalog match from a VK likes Source Library into a SoundCloud Import Playlist.',
-	'brand.tagline':
-		'Catalog-match a Source Library of VK likes into a SoundCloud Import Playlist.',
+	'brand.tagline': 'Catalog-match a Source Library of VK likes into a SoundCloud Import Playlist.',
 	'locale.switcherLabel': 'Language',
 	'locale.ru': 'Русский',
 	'locale.en': 'English',
@@ -311,16 +338,12 @@ const en: MessageCatalog = {
 	'soundcloud.connectFailed':
 		'Could not start SoundCloud sign-in. Check SOUNDCLOUD_CLIENT_ID in .env.',
 	'soundcloud.logoutFailed': 'Could not disconnect SoundCloud.',
-	'soundcloud.restoreFailed':
-		'Could not restore the SoundCloud connection.',
+	'soundcloud.restoreFailed': 'Could not restore the SoundCloud connection.',
 	'soundcloud.errorAuthorizeDenied': 'SoundCloud sign-in was denied.',
 	'soundcloud.errorMissingCode': 'SoundCloud did not return an authorization code.',
-	'soundcloud.errorCompleteFailed':
-		'Could not finish SoundCloud sign-in. Try again.',
-	'guidance.connectDetail':
-		'Sign in so matched tracks can be written to your Import Playlist.',
-	'guidance.libraryDetail':
-		'Provide your VK likes as a Source Library of artist + title rows.',
+	'soundcloud.errorCompleteFailed': 'Could not finish SoundCloud sign-in. Try again.',
+	'guidance.connectDetail': 'Sign in so matched tracks can be written to your Import Playlist.',
+	'guidance.libraryDetail': 'Provide your VK likes as a Source Library of artist + title rows.',
 	'guidance.stepConnect': 'Connect SoundCloud',
 	'guidance.stepLibrary': 'Load Source Library',
 	'guidance.readyHeadline': 'Ready to catalog match',
@@ -335,8 +358,7 @@ const en: MessageCatalog = {
 	'guidance.needConnectHeadline': 'Connect SoundCloud',
 	'guidance.needConnectSummary':
 		'Source Library is loaded. Connect SoundCloud before writing an Import Playlist.',
-	'guidance.readyBanner':
-		'You can run Catalog Match now.',
+	'guidance.readyBanner': 'You can run Catalog Match now.',
 	'library.format': 'Format',
 	'library.upload': 'Upload file',
 	'library.paste': 'Or paste Source Library',
@@ -349,10 +371,8 @@ const en: MessageCatalog = {
 	'library.ingestOk': 'Loaded {count} Library Track{suffix}.',
 	'library.ingestNoValid':
 		'No valid Library Tracks — existing Import Session (if any) was left unchanged.',
-	'library.restoreHttpError':
-		'Could not restore Import Session (HTTP {status}).',
-	'library.restoreFailed':
-		'Could not restore Import Session from the local API.',
+	'library.restoreHttpError': 'Could not restore Import Session (HTTP {status}).',
+	'library.restoreFailed': 'Could not restore Import Session from the local API.',
 	'library.ingestFailed': 'Could not reach the local Import Session API.',
 	'library.clear': 'Clear Source Library',
 	'library.clearing': 'Clearing…',
@@ -387,8 +407,7 @@ const en: MessageCatalog = {
 	'resolve.openOnSoundCloud': 'Open on SoundCloud',
 	'resolve.noListen': 'No preview or link',
 	'resolve.previewLoading': 'Loading preview…',
-	'resolve.previewUnavailable':
-		'In-app preview unavailable — open the track on SoundCloud.',
+	'resolve.previewUnavailable': 'In-app preview unavailable — open the track on SoundCloud.',
 	'resolve.searchLabel': 'SoundCloud search',
 	'resolve.searchPlaceholder': 'artist title',
 	'resolve.search': 'Search',
@@ -398,6 +417,25 @@ const en: MessageCatalog = {
 	'resolve.busy': 'Saving…',
 	'resolve.failed': 'Could not update Match Record: {message}',
 	'resolve.queueProgress': '{count} in queue',
+	'resolve.keyChoose': 'choose track',
+	'resolve.keySubmit': 'confirm',
+	'resolve.keyListen': 'listen / stop',
+	'resolve.keySeek': 'seek (Shift — ×3)',
+	'resolve.keySkip': 'skip',
+	'resolve.keyBack': 'back to previous',
+	'resolve.back': '← Previous',
+	'resolve.decidedShow': 'Decided tracks ({count})',
+	'resolve.decidedHide': 'Hide decided tracks',
+	'resolve.decidedFilter': 'Filter by artist or title',
+	'resolve.decidedLoading': 'Loading…',
+	'resolve.decidedNoMatch': 'Nothing matches the filter',
+	'resolve.decidedAccepted': 'Accepted',
+	'resolve.decidedSkipped': 'Skipped',
+	'resolve.decidedShown': 'Showing {shown} of {total}',
+	'resolve.reopen': 'Reopen',
+	'resolve.reopenLocked': 'Already in Import Playlist — use Rematch',
+	'resolve.keySearch': 'search',
+	'resolve.keyOpen': 'open on SoundCloud',
 	'playlist.write': 'Write Import Playlist',
 	'playlist.resume': 'Resume Import Playlist',
 	'playlist.writing': 'Writing Import Playlist…',
@@ -430,14 +468,12 @@ const en: MessageCatalog = {
 	'menu.copyArtist': 'Copy artist',
 	'menu.copyTitle': 'Copy title',
 	'menu.copyLine': 'Copy line',
-	'error.library_track_requires_artist_title':
-		'Library Track requires artist and title',
+	'error.library_track_requires_artist_title': 'Library Track requires artist and title',
 	'error.source_library_json_invalid': 'Source Library JSON is not valid',
 	'error.source_library_json_shape':
 		'Source Library JSON must be an array of tracks or { "tracks": [...] }',
 	'error.source_library_csv_empty': 'Source Library CSV is empty',
-	'error.source_library_csv_headers':
-		'Source Library CSV requires artist and title columns',
+	'error.source_library_csv_headers': 'Source Library CSV requires artist and title columns',
 	'error.request_body_must_be_json': 'Request body must be JSON',
 	'error.format_must_be_json_or_csv': 'format must be "json" or "csv"',
 	'error.content_must_be_string': 'content must be a string'

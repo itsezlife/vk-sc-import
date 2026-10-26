@@ -2,7 +2,7 @@
  * Match Record — binding of one Library Track to a Catalog Match outcome.
  *
  * Owns: closed Match Record leaves, Match Resolution transforms (pick / bind /
- * skip), Rematch transform (replace bound SoundCloud Track), resolution /
+ * skip / reopen), Rematch transform (replace bound SoundCloud Track), resolution /
  * review list builders, bucket summary.
  *
  * Does not own: Catalog Match scoring, SoundCloud search I/O, Session File I/O,
@@ -79,6 +79,19 @@ export type ResolutionQueueItem = {
 	/** Index into Import Session `matchRecords` (stable for pick/bind/skip). */
 	matchIndex: number;
 	record: Extract<MatchRecord, { classification: 'ambiguous' | 'unresolved' }>;
+};
+
+/**
+ * Rows the user already decided in Match Resolution: Accepted (pick / bind /
+ * Rematch) and skipped (deferred Unresolved). Auto-Match is not listed — the
+ * user never decided it, and Rematch already covers changing it.
+ */
+export type DecidedListItem = {
+	/** Index into Import Session `matchRecords` (stable for reopen). */
+	matchIndex: number;
+	record:
+		| Extract<MatchRecord, { classification: 'accepted' }>
+		| Extract<MatchRecord, { classification: 'unresolved'; deferred?: true }>;
 };
 
 /** Bound Auto/Accepted rows available for post-write review and Rematch. */
@@ -172,6 +185,103 @@ export function skipMatchRecord(
 		libraryTrack: record.libraryTrack,
 		confidence: record.confidence,
 		deferred: true
+	};
+}
+
+/**
+ * Accepted + skipped rows, most recently decided first — the Decided list.
+ *
+ * Match Records carry no decision time; `history` (Session File undo stack,
+ * oldest first) is the only record of decision order. Rows it covers lead,
+ * newest first; rows decided before history existed follow in reverse
+ * library order — the queue walks the library top-down, so that is the best
+ * remaining guess.
+ */
+export function buildDecidedList(
+	records: MatchRecord[],
+	history: ResolutionQueueItem[] = []
+): DecidedListItem[] {
+	const decidedAt = (matchIndex: number): DecidedListItem | null => {
+		const record = records[matchIndex];
+		if (
+			record &&
+			(record.classification === 'accepted' ||
+				(record.classification === 'unresolved' && record.deferred === true))
+		) {
+			return { matchIndex, record };
+		}
+		return null;
+	};
+
+	const items: DecidedListItem[] = [];
+	const listed = new Set<number>();
+	for (let at = history.length - 1; at >= 0; at -= 1) {
+		const { matchIndex } = history[at]!;
+		const item = listed.has(matchIndex) ? null : decidedAt(matchIndex);
+		if (item) {
+			items.push(item);
+			listed.add(matchIndex);
+		}
+	}
+	for (let matchIndex = records.length - 1; matchIndex >= 0; matchIndex -= 1) {
+		const item = listed.has(matchIndex) ? null : decidedAt(matchIndex);
+		if (item) {
+			items.push(item);
+		}
+	}
+	return items;
+}
+
+/**
+ * Reopen a decided row that has no history entry (decided before history
+ * existed, or the entry was already used). The candidates are gone, so an
+ * Accepted row comes back as Unresolved: Match Resolution's seed search then
+ * finds fresh options. A skipped row just loses `deferred`.
+ */
+export function reopenDecidedRecord(
+	current: DecidedListItem['record']
+): Extract<MatchRecord, { classification: 'unresolved' }> {
+	return {
+		classification: 'unresolved',
+		libraryTrack: current.libraryTrack,
+		confidence: current.confidence
+	};
+}
+
+/**
+ * Reopen — undo one Match Resolution decision (pick / bind / skip).
+ *
+ * `previous` is the Session File history entry for that row. It is only
+ * restored when `current` is still what a decision produces (Accepted, or
+ * deferred Unresolved) for the same Library Track — a history entry that went
+ * stale (e.g. Rematch since) must not overwrite a different binding.
+ */
+export function reopenMatchRecord(
+	current: MatchRecord,
+	previous: ResolutionQueueItem['record']
+): ResolutionQueueItem['record'] {
+	const decided =
+		current.classification === 'accepted' ||
+		(current.classification === 'unresolved' && current.deferred === true);
+	if (!decided) {
+		throw new Error(
+			`Match Record is ${current.classification}, not a Match Resolution decision to reopen`
+		);
+	}
+	if (
+		current.libraryTrack.artist !== previous.libraryTrack.artist ||
+		current.libraryTrack.title !== previous.libraryTrack.title
+	) {
+		throw new Error('Reopen Library Track does not match the Match Record at that index');
+	}
+	if (previous.classification === 'ambiguous') {
+		return previous;
+	}
+	// Back in the active queue: a deferred flag here would hide it again.
+	return {
+		classification: 'unresolved',
+		libraryTrack: previous.libraryTrack,
+		confidence: previous.confidence
 	};
 }
 

@@ -19,6 +19,10 @@
  * playlist id. Legacy Session Files with `importPlaylist` and no status field
  * read as `complete`.
  *
+ * Match Resolution appends each pick / bind / skip to `resolutionHistory`
+ * (the row as it was before) so Back can undo across reloads; a fresh Catalog
+ * Match pass clears it because its indices point at replaced Match Records.
+ *
  * Re-ingesting a Source Library replaces the session and clears Match Records
  * (and Import Playlist identity) so classifications never outlive their library
  * rows.
@@ -26,7 +30,7 @@
 
 import type { ImportPlaylist } from '$lib/soundcloud/import-playlist';
 import type { LibraryTrack } from './library-track';
-import type { MatchRecord } from './match-record';
+import type { MatchRecord, ResolutionQueueItem } from './match-record';
 
 export const SESSION_FILE_VERSION = 1 as const;
 
@@ -50,6 +54,12 @@ export type ImportSession = {
 	 * (treated as `complete` when reading).
 	 */
 	importPlaylistWriteStatus?: ImportPlaylistWriteStatus;
+	/**
+	 * Undo stack for Match Resolution, oldest first: each entry is the queue row
+	 * as it was before a pick / bind / skip. Pick and skip drop candidates from
+	 * `matchRecords`, so this is the only place they survive. Omitted when empty.
+	 */
+	resolutionHistory?: ResolutionQueueItem[];
 };
 
 export function createImportSession(
@@ -82,6 +92,18 @@ export function withMatchRecords(
 		updatedAt: now.toISOString(),
 		matchRecords
 	};
+}
+
+/** Replaces the Match Resolution undo stack; an empty stack is omitted from disk. */
+export function withResolutionHistory(
+	session: ImportSession,
+	resolutionHistory: ResolutionQueueItem[]
+): ImportSession {
+	const next: ImportSession = { ...session, resolutionHistory };
+	if (resolutionHistory.length === 0) {
+		delete next.resolutionHistory;
+	}
+	return next;
 }
 
 /** Drops Import Playlist identity and write status (e.g. before a fresh Catalog Match pass). */

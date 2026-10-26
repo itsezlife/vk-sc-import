@@ -6,10 +6,7 @@
 	 * unrelated screens.
 	 */
 	import type { ListenMedia } from '$lib/soundcloud/listen-media';
-	import {
-		formatTrackDuration,
-		type SoundCloudTrack
-	} from '$lib/soundcloud/soundcloud-track';
+	import { formatTrackDuration, type SoundCloudTrack } from '$lib/soundcloud/soundcloud-track';
 	import { playableListenMedia } from '$lib/ui/playable-listen-media';
 	import { t } from '$lib/i18n/ui.svelte';
 
@@ -23,6 +20,13 @@
 		listenMedia: ListenMedia | null;
 		onListen: () => void;
 		onConfirm: () => void;
+		/**
+		 * Keyboard cursor of the journey sits on this card — Enter / Space act on
+		 * it. Optional: Rematch search has no keyboard map yet.
+		 */
+		highlighted?: boolean;
+		/** Digit that jumps the keyboard cursor here (1–9), shown on the artwork. */
+		shortcut?: string;
 	};
 
 	let {
@@ -33,28 +37,50 @@
 		listening,
 		listenMedia,
 		onListen,
-		onConfirm
+		onConfirm,
+		highlighted = false,
+		shortcut
 	}: Props = $props();
+
+	let cardEl = $state<HTMLLIElement | null>(null);
+
+	// Keyboard moves can push the cursor below the fold (long hit lists);
+	// `nearest` only scrolls when the card is actually out of view.
+	$effect(() => {
+		if (highlighted && cardEl) {
+			cardEl.scrollIntoView({ block: 'nearest' });
+		}
+	});
 
 	const durationLabel = $derived(
 		track.durationMs !== undefined ? formatTrackDuration(track.durationMs) : null
 	);
 </script>
 
-<li class="resolve-track-card">
-	{#if track.artworkUrl}
-		<img
-			class="resolve-track-card-art"
-			src={track.artworkUrl}
-			alt=""
-			width="56"
-			height="56"
-			loading="lazy"
-			decoding="async"
-		/>
-	{:else}
-		<div class="resolve-track-card-art resolve-track-card-art-empty" aria-hidden="true"></div>
-	{/if}
+<li
+	bind:this={cardEl}
+	class="resolve-track-card"
+	class:resolve-track-card-highlighted={highlighted}
+	aria-current={highlighted ? 'true' : undefined}
+>
+	<div class="resolve-track-card-art-wrap">
+		{#if track.artworkUrl}
+			<img
+				class="resolve-track-card-art"
+				src={track.artworkUrl}
+				alt=""
+				width="56"
+				height="56"
+				loading="lazy"
+				decoding="async"
+			/>
+		{:else}
+			<div class="resolve-track-card-art resolve-track-card-art-empty" aria-hidden="true"></div>
+		{/if}
+		{#if shortcut}
+			<kbd class="ui-kbd resolve-track-card-shortcut">{shortcut}</kbd>
+		{/if}
+	</div>
 
 	<div class="resolve-track-card-body">
 		<div class="resolve-track-card-meta">
@@ -76,6 +102,7 @@
 				onclick={onListen}
 			>
 				{listenBusy ? t('resolve.previewLoading') : t('resolve.listen')}
+				{#if highlighted}<kbd class="ui-kbd ml-1.5">Space</kbd>{/if}
 			</button>
 			{#if track.permalinkUrl}
 				<button
@@ -94,6 +121,7 @@
 				onclick={onConfirm}
 			>
 				{busy ? t('resolve.busy') : confirmLabel}
+				{#if highlighted && !busy}<kbd class="ui-kbd ml-1.5">Enter</kbd>{/if}
 			</button>
 		</div>
 	</div>
@@ -125,6 +153,24 @@
 		border-radius: 0.75rem;
 		border: 1px solid rgb(15 23 42 / 0.1);
 		background: rgb(255 255 255);
+		transition:
+			border-color var(--duration-shell) var(--ease-shell),
+			box-shadow var(--duration-shell) var(--ease-shell);
+	}
+
+	.resolve-track-card-highlighted {
+		border-color: var(--color-teal-700);
+		box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-teal-700) 22%, transparent);
+	}
+
+	.resolve-track-card-art-wrap {
+		position: relative;
+	}
+
+	.resolve-track-card-shortcut {
+		position: absolute;
+		top: -0.35rem;
+		left: -0.35rem;
 	}
 
 	.resolve-track-card-art {

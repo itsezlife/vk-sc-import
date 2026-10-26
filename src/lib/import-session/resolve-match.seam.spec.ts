@@ -125,9 +125,7 @@ describe('Import Session Match Resolution seam', () => {
 		expect(queue.items.map((item) => item.record.classification)).toEqual(['unresolved']);
 
 		const onDisk = await createSessionFileStore(dataDir).read();
-		const burial = onDisk?.matchRecords.find(
-			(record) => record.libraryTrack.title === 'Archangel'
-		);
+		const burial = onDisk?.matchRecords.find((record) => record.libraryTrack.title === 'Archangel');
 		expect(burial).toEqual({
 			classification: 'accepted',
 			libraryTrack: { artist: 'Burial', title: 'Archangel' },
@@ -201,9 +199,7 @@ describe('Import Session Match Resolution seam', () => {
 		expect(queue.items[0]?.record.libraryTrack.title).toBe('Missing From Catalog');
 
 		const onDisk = await createSessionFileStore(dataDir).read();
-		const burial = onDisk?.matchRecords.find(
-			(record) => record.libraryTrack.title === 'Archangel'
-		);
+		const burial = onDisk?.matchRecords.find((record) => record.libraryTrack.title === 'Archangel');
 		expect(burial).toEqual({
 			classification: 'unresolved',
 			libraryTrack: { artist: 'Burial', title: 'Archangel' },
@@ -227,6 +223,184 @@ describe('Import Session Match Resolution seam', () => {
 		const queue = await api.getResolutionQueue();
 		expect(queue.items).toEqual([]);
 		expect(queue.matchBuckets.unresolved).toBe(2);
+	});
+
+	it('reopen after skip restores the Ambiguous row with its candidates to the queue', async () => {
+		await seedMatchedSession();
+		const before = await api.getResolutionQueue();
+		const ambiguous = before.items.find((item) => item.record.classification === 'ambiguous')!;
+		await api.skipMatch({ matchIndex: ambiguous.matchIndex });
+		expect((await api.getResolutionQueue()).reopenableCount).toBe(1);
+
+		const result = await api.reopenMatch();
+
+		expect(result.matchIndex).toBe(ambiguous.matchIndex);
+		expect(result.matchBuckets).toEqual({ auto: 1, ambiguous: 1, unresolved: 1, accepted: 0 });
+		const queue = await api.getResolutionQueue();
+		expect(queue.items).toEqual(before.items);
+		expect(queue.reopenableCount).toBe(0);
+	});
+
+	it('reopen survives a reload — history lives in the Session File', async () => {
+		await seedMatchedSession();
+		const before = await api.getResolutionQueue();
+		const ambiguous = before.items.find((item) => item.record.classification === 'ambiguous')!;
+		await api.acceptCandidate({
+			matchIndex: ambiguous.matchIndex,
+			soundCloudTrackId: 'sc-arch-a'
+		});
+
+		const reloaded = createImportSessionApi({ dataDir, gateway });
+		await reloaded.reopenMatch();
+
+		const onDisk = await createSessionFileStore(dataDir).read();
+		expect(onDisk?.matchRecords[ambiguous.matchIndex]).toEqual(ambiguous.record);
+		expect(onDisk?.resolutionHistory).toBeUndefined();
+	});
+
+	it('reopen walks back newest first and clears deferred on an Unresolved row', async () => {
+		await seedMatchedSession();
+		const before = await api.getResolutionQueue();
+		const ambiguous = before.items.find((item) => item.record.classification === 'ambiguous')!;
+		const unresolved = before.items.find((item) => item.record.classification === 'unresolved')!;
+		await api.skipMatch({ matchIndex: ambiguous.matchIndex });
+		await api.skipMatch({ matchIndex: unresolved.matchIndex });
+		expect((await api.getResolutionQueue()).items).toEqual([]);
+
+		expect((await api.reopenMatch()).matchIndex).toBe(unresolved.matchIndex);
+		expect((await api.getResolutionQueue()).items.map((item) => item.matchIndex)).toEqual([
+			unresolved.matchIndex
+		]);
+
+		expect((await api.reopenMatch()).matchIndex).toBe(ambiguous.matchIndex);
+		await expect(api.reopenMatch()).rejects.toThrow(/No Match Resolution decision/);
+	});
+
+	it('drops a history entry that went stale instead of blocking older ones', async () => {
+		await seedMatchedSession();
+		const before = await api.getResolutionQueue();
+		const ambiguous = before.items.find((item) => item.record.classification === 'ambiguous')!;
+		const unresolved = before.items.find((item) => item.record.classification === 'unresolved')!;
+		await api.skipMatch({ matchIndex: ambiguous.matchIndex });
+		await api.skipMatch({ matchIndex: unresolved.matchIndex });
+
+		// Simulate the newest row changing outside Match Resolution.
+		const store = createSessionFileStore(dataDir);
+		const session = (await store.read())!;
+		const matchRecords = session.matchRecords.slice();
+		matchRecords[unresolved.matchIndex] = unresolved.record;
+		await store.write({ ...session, matchRecords });
+
+		await expect(api.reopenMatch()).rejects.toThrow(/not a Match Resolution decision/);
+		expect((await api.getResolutionQueue()).reopenableCount).toBe(1);
+		expect((await api.reopenMatch()).matchIndex).toBe(ambiguous.matchIndex);
+	});
+
+	it('a fresh Catalog Match pass clears the undo history', async () => {
+		await seedMatchedSession();
+		const before = await api.getResolutionQueue();
+		await api.skipMatch({ matchIndex: before.items[0]!.matchIndex });
+
+		await api.runCatalogMatch({ paceMs: 0 });
+
+		expect((await api.getResolutionQueue()).reopenableCount).toBe(0);
+	});
+
+	it('lists Accepted and skipped rows as decided, not Auto-Match', async () => {
+		await seedMatchedSession();
+		const before = await api.getResolutionQueue();
+		const ambiguous = before.items.find((item) => item.record.classification === 'ambiguous')!;
+		const unresolved = before.items.find((item) => item.record.classification === 'unresolved')!;
+		await api.acceptCandidate({
+			matchIndex: ambiguous.matchIndex,
+			soundCloudTrackId: 'sc-arch-a'
+		});
+		await api.skipMatch({ matchIndex: unresolved.matchIndex });
+
+		const decided = await api.getDecidedList();
+
+		expect(decided.items.map((item) => item.matchIndex).sort()).toEqual(
+			[ambiguous.matchIndex, unresolved.matchIndex].sort()
+		);
+		expect(decided.acceptedLocked).toBe(false);
+		expect((await api.getResolutionQueue()).decidedCount).toBe(2);
+	});
+
+	it('orders the Decided list by most recent decision, not library position', async () => {
+		await seedMatchedSession();
+		const before = await api.getResolutionQueue();
+		const ambiguous = before.items.find((item) => item.record.classification === 'ambiguous')!;
+		const unresolved = before.items.find((item) => item.record.classification === 'unresolved')!;
+		// Decide the later library row first, then the earlier one.
+		await api.skipMatch({ matchIndex: unresolved.matchIndex });
+		await api.skipMatch({ matchIndex: ambiguous.matchIndex });
+		expect(ambiguous.matchIndex).toBeLessThan(unresolved.matchIndex);
+
+		const decided = await api.getDecidedList();
+
+		expect(decided.items.map((item) => item.matchIndex)).toEqual([
+			ambiguous.matchIndex,
+			unresolved.matchIndex
+		]);
+	});
+
+	it('reopenDecided uses the history entry when present, restoring candidates', async () => {
+		await seedMatchedSession();
+		const before = await api.getResolutionQueue();
+		const ambiguous = before.items.find((item) => item.record.classification === 'ambiguous')!;
+		const unresolved = before.items.find((item) => item.record.classification === 'unresolved')!;
+		await api.acceptCandidate({
+			matchIndex: ambiguous.matchIndex,
+			soundCloudTrackId: 'sc-arch-a'
+		});
+		await api.skipMatch({ matchIndex: unresolved.matchIndex });
+
+		// Not the newest decision — Back alone could not reach it first.
+		const result = await api.reopenDecided({ matchIndex: ambiguous.matchIndex });
+
+		expect(result.matchIndex).toBe(ambiguous.matchIndex);
+		const onDisk = await createSessionFileStore(dataDir).read();
+		expect(onDisk?.matchRecords[ambiguous.matchIndex]).toEqual(ambiguous.record);
+		// Its history entry is consumed; Back now reaches the skip.
+		expect(onDisk?.resolutionHistory?.map((entry) => entry.matchIndex)).toEqual([
+			unresolved.matchIndex
+		]);
+	});
+
+	it('reopenDecided without history reopens an Accepted row as Unresolved in the queue', async () => {
+		await seedMatchedSession();
+		const before = await api.getResolutionQueue();
+		const ambiguous = before.items.find((item) => item.record.classification === 'ambiguous')!;
+		await api.acceptCandidate({
+			matchIndex: ambiguous.matchIndex,
+			soundCloudTrackId: 'sc-arch-a'
+		});
+		// Simulate a decision made before history existed.
+		const store = createSessionFileStore(dataDir);
+		const session = (await store.read())!;
+		const { resolutionHistory: _history, ...legacy } = session;
+		void _history;
+		await store.write(legacy);
+
+		await api.reopenDecided({ matchIndex: ambiguous.matchIndex });
+
+		const queue = await api.getResolutionQueue();
+		const reopened = queue.items.find((item) => item.matchIndex === ambiguous.matchIndex);
+		expect(reopened?.record).toEqual({
+			classification: 'unresolved',
+			libraryTrack: ambiguous.record.libraryTrack,
+			confidence: ambiguous.record.confidence
+		});
+	});
+
+	it('reopenDecided rejects rows the user never decided', async () => {
+		await seedMatchedSession();
+		const before = await api.getResolutionQueue();
+		const ambiguous = before.items.find((item) => item.record.classification === 'ambiguous')!;
+
+		await expect(api.reopenDecided({ matchIndex: ambiguous.matchIndex })).rejects.toThrow(
+			/not a decided row/
+		);
 	});
 
 	it('rejects pick of a track that is not a candidate on that Ambiguous Match', async () => {

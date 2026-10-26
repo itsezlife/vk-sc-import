@@ -50,6 +50,7 @@ import {
 	withImportPlaylistWrite,
 	withMatchRecords,
 	withoutImportPlaylist,
+	withResolutionHistory,
 	type ImportPlaylistWriteStatus,
 	type ImportSession
 } from './import-session';
@@ -68,6 +69,10 @@ import {
 	buildResolutionQueue,
 	buildReviewList,
 	rematchBoundTrack,
+	reopenMatchRecord,
+	reopenDecidedRecord,
+	buildDecidedList,
+	type DecidedListItem,
 	skipMatchRecord,
 	summarizeMatchBuckets,
 	type MatchBucketsSummary,
@@ -75,17 +80,10 @@ import {
 	type ResolutionQueueItem,
 	type ReviewListItem
 } from './match-record';
-import {
-	classifyMatch,
-	libraryTrackQuery,
-	scoreSoundCloudCandidate
-} from './match-score';
+import { classifyMatch, libraryTrackQuery, scoreSoundCloudCandidate } from './match-score';
 import { sleep, throwIfAborted } from './run-abort';
 import { createSessionFileStore } from './session-file-store';
-import {
-	ingestSourceLibrary,
-	type SourceLibraryFormat
-} from './source-library-ingest';
+import { ingestSourceLibrary, type SourceLibraryFormat } from './source-library-ingest';
 import type { ImportPlaylist } from '$lib/soundcloud/import-playlist';
 import type { SoundCloudGateway } from '$lib/soundcloud/soundcloud-gateway';
 import type { SoundCloudTrack } from '$lib/soundcloud/soundcloud-track';
@@ -158,6 +156,10 @@ export type CatalogMatchResponse = {
 export type ResolutionQueueResponse = {
 	items: ResolutionQueueItem[];
 	matchBuckets: MatchBucketsSummary;
+	/** Decisions Back can still undo (Session File `resolutionHistory` length). */
+	reopenableCount: number;
+	/** Accepted + skipped rows — size of the Decided list, fetched separately. */
+	decidedCount: number;
 };
 
 export type AcceptCandidateRequest = {
@@ -171,6 +173,24 @@ export type BindSearchResultRequest = {
 };
 
 export type SkipMatchRequest = {
+	matchIndex: number;
+};
+
+export type DecidedListResponse = {
+	items: DecidedListItem[];
+	/**
+	 * True once an Import Playlist exists: Accepted rows are then playlist
+	 * members and cannot be reopened (Rematch owns changing them).
+	 */
+	acceptedLocked: boolean;
+};
+
+export type ReopenDecidedRequest = {
+	matchIndex: number;
+};
+
+export type ReopenMatchResponse = ResolveMatchResponse & {
+	/** Row that went back into the queue — the client shows it next. */
 	matchIndex: number;
 };
 
@@ -254,13 +274,23 @@ export type ImportSessionApi = {
 	acceptCandidate(request: AcceptCandidateRequest): Promise<ResolveMatchResponse>;
 	bindSearchResult(request: BindSearchResultRequest): Promise<ResolveMatchResponse>;
 	skipMatch(request: SkipMatchRequest): Promise<ResolveMatchResponse>;
+	/**
+	 * Undo the most recent pick / bind / skip from the Session File history —
+	 * the row returns to the resolution queue as it was before that decision.
+	 */
+	reopenMatch(): Promise<ReopenMatchResponse>;
+	/** Accepted + skipped rows the user can reopen from the Decided list. */
+	getDecidedList(): Promise<DecidedListResponse>;
+	/**
+	 * Reopen any decided row. Uses its newest history entry when there is one
+	 * (original candidates come back); otherwise reopens it as Unresolved.
+	 */
+	reopenDecided(request: ReopenDecidedRequest): Promise<ReopenMatchResponse>;
 	searchCatalog(request: SearchCatalogRequest): Promise<SearchCatalogResponse>;
 	resolvePreview(request: {
 		trackId: string;
 	}): Promise<{ previewUrl: string | null; kind: 'progressive' | 'hls' | null }>;
-	writeImportPlaylist(
-		options?: WriteImportPlaylistOptions
-	): Promise<WriteImportPlaylistResponse>;
+	writeImportPlaylist(options?: WriteImportPlaylistOptions): Promise<WriteImportPlaylistResponse>;
 	/** Bound Auto/Accepted Match Records for post-write review (empty before complete write). */
 	getReviewList(): Promise<ReviewListResponse>;
 	/**
@@ -289,18 +319,13 @@ export type CreateImportSessionApiOptions = {
  * and an optional SoundCloudGateway for Catalog Match / Match Resolution /
  * Import Playlist write / Rematch.
  */
-export function createImportSessionApi(
-	options: CreateImportSessionApiOptions
-): ImportSessionApi {
+export function createImportSessionApi(options: CreateImportSessionApiOptions): ImportSessionApi {
 	const store = createSessionFileStore(options.dataDir);
 	const gateway = options.gateway;
 
 	return {
 		async ingestLibrary(request) {
-			const { tracks, validationErrors } = ingestSourceLibrary(
-				request.format,
-				request.content
-			);
+			const { tracks, validationErrors } = ingestSourceLibrary(request.format, request.content);
 
 			if (tracks.length === 0) {
 				return { session: null, validationErrors };
@@ -336,20 +361,15 @@ export function createImportSessionApi(
 
 			throwIfAborted(signal);
 
-			const incomplete =
-				session.matchRecords.length > 0 && session.matchRecords.length < total;
+			const incomplete = session.matchRecords.length > 0 && session.matchRecords.length < total;
 			const startIndex = incomplete ? session.matchRecords.length : 0;
-			let matchRecords: MatchRecord[] = incomplete
-				? session.matchRecords.slice()
-				: [];
-			let baseSession: ImportSession = incomplete
-				? session
-				: withoutImportPlaylist(session);
+			let matchRecords: MatchRecord[] = incomplete ? session.matchRecords.slice() : [];
+			let baseSession: ImportSession = incomplete ? session : withoutImportPlaylist(session);
 
 			if (!incomplete) {
 				// Fresh pass: clear prior Match Records + playlist so cancel cannot
 				// leave a stale complete set beside a new prefix.
-				baseSession = withMatchRecords(baseSession, []);
+				baseSession = withMatchRecords(withResolutionHistory(baseSession, []), []);
 				await store.write(baseSession);
 			}
 
@@ -391,7 +411,9 @@ export function createImportSessionApi(
 			if (!session || session.matchRecords.length === 0) {
 				return {
 					items: [],
-					matchBuckets: summarizeMatchBuckets([])
+					matchBuckets: summarizeMatchBuckets([]),
+					reopenableCount: 0,
+					decidedCount: 0
 				};
 			}
 
@@ -400,10 +422,7 @@ export function createImportSessionApi(
 			if (activeGateway) {
 				const identity = await activeGateway.getIdentity();
 				if (identity) {
-					const hydrated = await hydrateAmbiguousCandidates(
-						activeGateway,
-						session.matchRecords
-					);
+					const hydrated = await hydrateAmbiguousCandidates(activeGateway, session.matchRecords);
 					if (hydrated.changed) {
 						matchRecords = hydrated.records;
 						await store.write(withMatchRecords(session, matchRecords));
@@ -413,7 +432,9 @@ export function createImportSessionApi(
 
 			return {
 				items: buildResolutionQueue(matchRecords),
-				matchBuckets: summarizeMatchBuckets(matchRecords)
+				matchBuckets: summarizeMatchBuckets(matchRecords),
+				reopenableCount: session.resolutionHistory?.length ?? 0,
+				decidedCount: buildDecidedList(matchRecords).length
 			};
 		},
 
@@ -425,21 +446,123 @@ export function createImportSessionApi(
 			}
 
 			const nextRecord = acceptCandidateRecord(record, request.soundCloudTrackId);
-			return persistResolvedRecord(store, session, request.matchIndex, nextRecord);
+			return persistDecision(
+				store,
+				session,
+				{ matchIndex: request.matchIndex, record },
+				nextRecord
+			);
 		},
 
 		async bindSearchResult(request) {
 			const session = await requireSessionWithMatches(store);
 			const record = requireResolvableRecord(session, request.matchIndex);
 			const nextRecord = acceptBoundTrack(record, request.soundCloudTrack);
-			return persistResolvedRecord(store, session, request.matchIndex, nextRecord);
+			return persistDecision(
+				store,
+				session,
+				{ matchIndex: request.matchIndex, record },
+				nextRecord
+			);
 		},
 
 		async skipMatch(request) {
 			const session = await requireSessionWithMatches(store);
 			const record = requireResolvableRecord(session, request.matchIndex);
 			const nextRecord = skipMatchRecord(record);
-			return persistResolvedRecord(store, session, request.matchIndex, nextRecord);
+			return persistDecision(
+				store,
+				session,
+				{ matchIndex: request.matchIndex, record },
+				nextRecord
+			);
+		},
+
+		async reopenMatch() {
+			const session = await requireSessionWithMatches(store);
+			const history = session.resolutionHistory ?? [];
+			const entry = history.at(-1);
+			if (!entry) {
+				throw new Error('No Match Resolution decision to undo');
+			}
+			const remaining = history.slice(0, -1);
+			const current = session.matchRecords[entry.matchIndex];
+
+			let nextRecord: MatchRecord;
+			try {
+				if (!current) {
+					throw new Error(`Match Record index ${entry.matchIndex} is out of range`);
+				}
+				// A bound row may already be a member of the written Import Playlist;
+				// reopening it would leave that membership orphaned. Rematch owns that.
+				if (current.classification === 'accepted' && session.importPlaylist) {
+					throw new Error('Import Playlist already written — use Rematch to change this track');
+				}
+				nextRecord = reopenMatchRecord(current, entry.record);
+			} catch (error) {
+				// Without dropping it, an entry that can never be undone would pin
+				// Back to the same error forever and hide every older decision.
+				await store.write(withResolutionHistory(session, remaining));
+				throw error;
+			}
+
+			const matchRecords = session.matchRecords.slice();
+			matchRecords[entry.matchIndex] = nextRecord;
+			const next = withMatchRecords(withResolutionHistory(session, remaining), matchRecords);
+			await store.write(next);
+			const matchBuckets = summarizeMatchBuckets(matchRecords);
+			return { session: toSummary(next), matchBuckets, matchIndex: entry.matchIndex };
+		},
+
+		async getDecidedList() {
+			const session = await store.read();
+			return {
+				items: session
+					? buildDecidedList(session.matchRecords, session.resolutionHistory)
+					: [],
+				acceptedLocked: Boolean(session?.importPlaylist)
+			};
+		},
+
+		async reopenDecided(request) {
+			const session = await requireSessionWithMatches(store);
+			const { matchIndex } = request;
+			const current = session.matchRecords[matchIndex];
+			if (
+				!current ||
+				!(
+					current.classification === 'accepted' ||
+					(current.classification === 'unresolved' && current.deferred === true)
+				)
+			) {
+				throw new Error(`Match Record at index ${matchIndex} is not a decided row to reopen`);
+			}
+			if (current.classification === 'accepted' && session.importPlaylist) {
+				throw new Error('Import Playlist already written — use Rematch to change this track');
+			}
+
+			// Prefer the history entry: it still holds the original candidates.
+			// Remove it either way so ⌘S never replays a row reopened from here.
+			const history = session.resolutionHistory ?? [];
+			const at = history.findLastIndex((entry) => entry.matchIndex === matchIndex);
+			let nextRecord: MatchRecord | null = null;
+			if (at >= 0) {
+				try {
+					nextRecord = reopenMatchRecord(current, history[at]!.record);
+				} catch {
+					// Stale entry (different track / binding) — fall back below.
+					nextRecord = null;
+				}
+			}
+			nextRecord ??= reopenDecidedRecord(current);
+			const remaining = at >= 0 ? history.filter((_, index) => index !== at) : history;
+
+			const matchRecords = session.matchRecords.slice();
+			matchRecords[matchIndex] = nextRecord;
+			const next = withMatchRecords(withResolutionHistory(session, remaining), matchRecords);
+			await store.write(next);
+			const matchBuckets = summarizeMatchBuckets(matchRecords);
+			return { session: toSummary(next), matchBuckets, matchIndex };
 		},
 
 		async searchCatalog(request) {
@@ -483,9 +606,7 @@ export function createImportSessionApi(
 				}
 			}
 			if (boundIndexes.length === 0) {
-				throw new Error(
-					'Import Playlist write requires bound Auto or Accepted Match Records'
-				);
+				throw new Error('Import Playlist write requires bound Auto or Accepted Match Records');
 			}
 
 			const now = writeOptions?.now ?? new Date();
@@ -550,13 +671,7 @@ export function createImportSessionApi(
 
 				const writeStatus: ImportPlaylistWriteStatus =
 					step === boundIndexes.length - 1 ? 'complete' : 'in_progress';
-				working = withImportPlaylistWrite(
-					working,
-					playlist,
-					matchRecords,
-					writeStatus,
-					now
-				);
+				working = withImportPlaylistWrite(working, playlist, matchRecords, writeStatus, now);
 				await store.write(working);
 
 				writeOptions?.onProgress?.({
@@ -655,9 +770,7 @@ export function createImportSessionApi(
 
 function toSummary(session: ImportSession): ImportSessionSummary {
 	const matchBuckets =
-		session.matchRecords.length > 0
-			? summarizeMatchBuckets(session.matchRecords)
-			: null;
+		session.matchRecords.length > 0 ? summarizeMatchBuckets(session.matchRecords) : null;
 
 	let importPlaylistWriteStatus: ImportPlaylistWriteStatus | null = null;
 	if (session.importPlaylist) {
@@ -750,15 +863,17 @@ function requireBoundRecord(
 	return record;
 }
 
-async function persistResolvedRecord(
+/** Pick / bind / skip: replace the row and push its prior form onto the undo stack. */
+async function persistDecision(
 	store: ReturnType<typeof createSessionFileStore>,
 	session: ImportSession,
-	matchIndex: number,
+	before: ResolutionQueueItem,
 	nextRecord: MatchRecord
 ): Promise<ResolveMatchResponse> {
 	const matchRecords = session.matchRecords.slice();
-	matchRecords[matchIndex] = nextRecord;
-	const next = withMatchRecords(session, matchRecords);
+	matchRecords[before.matchIndex] = nextRecord;
+	const history = [...(session.resolutionHistory ?? []), before];
+	const next = withMatchRecords(withResolutionHistory(session, history), matchRecords);
 	await store.write(next);
 	const matchBuckets = summarizeMatchBuckets(matchRecords);
 	return {
@@ -792,8 +907,7 @@ async function hydrateAmbiguousCandidates(
 				changed = true;
 			}
 
-			const needsMeta =
-				cleaned.artworkUrl === undefined || cleaned.durationMs === undefined;
+			const needsMeta = cleaned.artworkUrl === undefined || cleaned.durationMs === undefined;
 			if (!needsMeta) {
 				candidates.push(cleaned);
 				continue;

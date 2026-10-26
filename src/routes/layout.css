@@ -5,8 +5,7 @@
  * inline font-family on every node.
  */
 @theme {
-	--font-shell:
-		'Avenir Next', Avenir, 'Trebuchet MS', sans-serif;
+	--font-shell: 'Avenir Next', Avenir, 'Trebuchet MS', sans-serif;
 	--ease-shell: cubic-bezier(0.22, 1, 0.36, 1);
 	--duration-shell: 160ms;
 	--shell-frame-max: 72rem;
@@ -276,6 +275,34 @@
 		border-radius: 999px;
 		background-color: var(--color-teal-700);
 		animation: ui-busy-pulse 1.1s var(--ease-shell) infinite;
+	}
+
+	/* --- Keycap hint (ui-kit) --- */
+
+	.ui-kbd {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 1.3rem;
+		height: 1.3rem;
+		padding: 0 0.3rem;
+		border-radius: 0.3rem;
+		border: 1px solid color-mix(in oklab, var(--color-slate-900) 18%, transparent);
+		border-bottom-width: 2px;
+		background-color: white;
+		color: var(--color-slate-700);
+		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-size: 0.68rem;
+		font-weight: 600;
+		line-height: 1;
+		white-space: nowrap;
+	}
+
+	/* On solid teal buttons a white keycap would shout louder than the label. */
+	.ui-btn .ui-kbd {
+		border-color: color-mix(in oklab, white 40%, transparent);
+		background-color: color-mix(in oklab, white 16%, transparent);
+		color: inherit;
 	}
 
 	/* --- Context menu (ui-kit) --- */
