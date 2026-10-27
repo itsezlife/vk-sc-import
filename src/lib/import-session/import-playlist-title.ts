@@ -1,7 +1,8 @@
 /**
  * Dated Import Playlist title convention for one Import Session write.
  *
- * Owns: `VK import YYYY-MM-DD` naming (UTC calendar date of `now`).
+ * Owns: `VK import YYYY-MM-DD` naming (UTC calendar date of `now`) and the
+ * `(part N)` suffix for Import Playlist parts after the first.
  * Does not own: SoundCloud playlist identity fields (see soundcloud/import-playlist).
  */
 
@@ -14,4 +15,12 @@ export function importPlaylistTitle(now: Date): string {
 	const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
 	const dd = String(now.getUTCDate()).padStart(2, '0');
 	return `VK import ${yyyy}-${mm}-${dd}`;
+}
+
+/**
+ * Title for Import Playlist part `partNumber` (1-based). Part 1 keeps the base
+ * title so a session written before parts existed needs no rename.
+ */
+export function importPlaylistPartTitle(baseTitle: string, partNumber: number): string {
+	return partNumber <= 1 ? baseTitle : `${baseTitle} (part ${partNumber})`;
 }

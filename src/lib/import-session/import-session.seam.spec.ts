@@ -42,7 +42,7 @@ describe('Import Session seam', () => {
 			],
 			matchBuckets: null,
 			matchedCount: 0,
-			importPlaylist: null,
+			importPlaylists: [],
 			importPlaylistWriteStatus: null
 		});
 		expect(ingest.validationErrors).toEqual([

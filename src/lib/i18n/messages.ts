@@ -123,6 +123,7 @@ export type MessageKey =
 	| 'playlist.paused'
 	| 'playlist.failed'
 	| 'playlist.written'
+	| 'playlist.part'
 	| 'review.headline'
 	| 'review.summary'
 	| 'review.count'
@@ -284,6 +285,7 @@ const ru: MessageCatalog = {
 		'Запись Import Playlist приостановлена — плейлист и прогресс сохранены. Продолжите, когда будете готовы.',
 	'playlist.failed': 'Не удалось записать Import Playlist: {message}',
 	'playlist.written': 'Import Playlist записан: {title}',
+	'playlist.part': 'часть {n}',
 	'review.headline': 'Review Match Records',
 	'review.summary':
 		'Проверьте пары Library Track ↔ SoundCloud Track, послушайте и при необходимости Rematch — Import Playlist обновится.',
@@ -447,6 +449,7 @@ const en: MessageCatalog = {
 		'Import Playlist write paused — playlist identity and progress kept. Resume when ready.',
 	'playlist.failed': 'Import Playlist write failed: {message}',
 	'playlist.written': 'Import Playlist written: {title}',
+	'playlist.part': 'part {n}',
 	'review.headline': 'Review Match Records',
 	'review.summary':
 		'Audit Library Track ↔ SoundCloud Track pairs, listen to verify, and Rematch so the Import Playlist updates without fixing mistakes only on soundcloud.com.',

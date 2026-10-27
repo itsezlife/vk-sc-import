@@ -19,7 +19,7 @@ A track identity in the SoundCloud catalog that can be added to a playlist.
 _Avoid_: SC song, stream, upload
 
 **Import Playlist**:
-The SoundCloud playlist that receives matched tracks for one Import Session.
+The SoundCloud playlist that receives matched tracks for one Import Session. SoundCloud caps a playlist at 500 tracks, so a larger import spans several SoundCloud playlists — its **parts** (`VK import YYYY-MM-DD`, then `… (part 2)`, …). Each distinct SoundCloud Track appears once across the parts.
 _Avoid_: Likes folder, destination library, liked songs (as the write target)
 
 ### Matching

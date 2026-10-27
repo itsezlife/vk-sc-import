@@ -15,9 +15,11 @@
  * - Failed complete does not clear an existing successful token file.
  * - `startLogin` replaces pending only; existing tokens stay until complete succeeds
  *   or the user logs out.
- * - `getStatus` / `getAccessToken` are disconnected/null when tokens are missing
- *   or `expiresAt` is past (refresh lands with catalog API usage — complexity
- *   on demand).
+ * - `getStatus` / `getAccessToken` refresh tokens that are expired or within
+ *   {@link REFRESH_SKEW_MS} of expiry, so long runs (1000-track playlist write)
+ *   outlive the ~1h access token. Concurrent callers share one refresh. They
+ *   are disconnected/null when tokens are missing or refresh fails (the token
+ *   file is kept so the cause can be inspected; reconnect replaces it).
  */
 
 import { randomBytes } from 'node:crypto';
@@ -33,6 +35,10 @@ import {
 } from './oauth-http';
 import { createPkcePair, toBase64Url } from './pkce';
 import type { SoundCloudIdentity } from './soundcloud-identity';
+import type { SoundCloudTokenSet } from './auth-token-store';
+
+/** Refresh this long before `expiresAt` so a token never dies mid-request. */
+const REFRESH_SKEW_MS = 60_000;
 
 export type SoundCloudAuthStatus =
 	| { connected: false }
@@ -52,8 +58,9 @@ export type SoundCloudAuthApi = {
 	completeLogin(input: CompleteLoginInput): Promise<SoundCloudAuthStatus>;
 	getStatus(): Promise<SoundCloudAuthStatus>;
 	/**
-	 * Bearer token for SoundCloudGateway catalog HTTP. Null when disconnected
-	 * or expired — same liveness rule as `getStatus`.
+	 * Bearer token for SoundCloudGateway catalog HTTP, refreshed when near
+	 * expiry. Null when disconnected or refresh failed — same liveness rule as
+	 * `getStatus`.
 	 */
 	getAccessToken(): Promise<string | null>;
 	logout(): Promise<void>;
@@ -72,6 +79,36 @@ export function createSoundCloudAuthApi(
 ): SoundCloudAuthApi {
 	const { config, tokenStore, oauthHttp } = options;
 	const now = options.now ?? (() => new Date());
+	let refreshing: Promise<SoundCloudTokenSet | null> | null = null;
+
+	/** Current tokens, refreshed if near expiry; null when not usable. */
+	async function liveTokens(): Promise<SoundCloudTokenSet | null> {
+		const current = await tokenStore.read();
+		if (!current.tokens || !current.identity) {
+			return null;
+		}
+		if (Date.parse(current.tokens.expiresAt) - REFRESH_SKEW_MS > now().getTime()) {
+			return current.tokens;
+		}
+		refreshing ??= refreshTokens(current.tokens).finally(() => {
+			refreshing = null;
+		});
+		return refreshing;
+	}
+
+	async function refreshTokens(tokens: SoundCloudTokenSet): Promise<SoundCloudTokenSet | null> {
+		try {
+			const response = await oauthHttp.refreshAccessToken(tokens.refreshToken);
+			const next = tokenSetFromResponse(response, now(), tokens.refreshToken);
+			// Re-read so a pending login started meanwhile is not dropped.
+			const latest = await tokenStore.read();
+			await tokenStore.write({ ...latest, tokens: next });
+			return next;
+		} catch (error) {
+			console.error('[soundcloud-auth-api] Token refresh failed; reconnect required', error);
+			return null;
+		}
+	}
 
 	return {
 		async startLogin() {
@@ -127,25 +164,17 @@ export function createSoundCloudAuthApi(
 		},
 
 		async getStatus() {
-			const current = await tokenStore.read();
-			if (!current.tokens || !current.identity) {
+			const tokens = await liveTokens();
+			const { identity } = await tokenStore.read();
+			if (!tokens || !identity) {
 				return { connected: false };
 			}
-			if (Date.parse(current.tokens.expiresAt) <= now().getTime()) {
-				return { connected: false };
-			}
-			return { connected: true, identity: current.identity };
+			return { connected: true, identity };
 		},
 
 		async getAccessToken() {
-			const current = await tokenStore.read();
-			if (!current.tokens) {
-				return null;
-			}
-			if (Date.parse(current.tokens.expiresAt) <= now().getTime()) {
-				return null;
-			}
-			return current.tokens.accessToken;
+			const tokens = await liveTokens();
+			return tokens?.accessToken ?? null;
 		},
 
 		async logout() {

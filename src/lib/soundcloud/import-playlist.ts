@@ -6,10 +6,17 @@
  * Import Session types. Session File stores this identity so Rematch and review
  * can address the same playlist without re-creating it.
  *
- * Owns: playlist identity fields.
+ * SoundCloud caps a playlist at {@link SOUNDCLOUD_PLAYLIST_TRACK_LIMIT} tracks
+ * (PUT past it fails with HTTP 422), so one Import Playlist may span several
+ * SoundCloud playlists — its parts.
+ *
+ * Owns: playlist identity fields, the per-playlist track cap.
  * Does not own: dated title convention (Import Session), Match Record flags,
  * Session File I/O, SoundCloud HTTP.
  */
+
+/** Max tracks SoundCloud accepts in one playlist. */
+export const SOUNDCLOUD_PLAYLIST_TRACK_LIMIT = 500;
 
 export type ImportPlaylist = {
 	id: string;

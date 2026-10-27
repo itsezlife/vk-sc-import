@@ -2,9 +2,10 @@
  * Durable Import Session shape written to the Session File.
  *
  * Stores the validated Source Library and, after a Catalog Match pass, Match
- * Records. After Import Playlist write, stores Import Playlist identity and
- * `alreadyOnSc` flags on bound Match Records. Rematch mutates a bound Match
- * Record (and may refresh `alreadyOnSc`) while keeping the same Import
+ * Records. After Import Playlist write, stores Import Playlist identity (one
+ * SoundCloud playlist per part, in order — see SOUNDCLOUD_PLAYLIST_TRACK_LIMIT)
+ * and `alreadyOnSc` flags on bound Match Records. Rematch mutates a bound
+ * Match Record (and may refresh `alreadyOnSc`) while keeping the same Import
  * Playlist identity. Session File stores domain as a whole (no separate cache
  * DTO) — the file is our disk.
  *
@@ -16,8 +17,8 @@
  *
  * Import Playlist write may leave `importPlaylistWriteStatus: 'in_progress'`
  * after create / partial membership when cancelled; resume reuses the same
- * playlist id. Legacy Session Files with `importPlaylist` and no status field
- * read as `complete`.
+ * part ids. Legacy Session Files store a single `importPlaylist` (read as one
+ * part); with no status field they read as `complete`.
  *
  * Match Resolution appends each pick / bind / skip to `resolutionHistory`
  * (the row as it was before) so Back can undo across reloads; a fresh Catalog
@@ -47,10 +48,13 @@ export type ImportSession = {
 	 * prefix (`length < libraryTracks.length`) or a full 1:1 pass.
 	 */
 	matchRecords: MatchRecord[];
-	/** Set once Import Playlist create succeeds (including mid-write cancel). */
-	importPlaylist?: ImportPlaylist;
 	/**
-	 * Present with `importPlaylist`. Omitted on legacy complete Session Files
+	 * Import Playlist parts in membership order; set once the first part's
+	 * create succeeds (including mid-write cancel). Never empty when present.
+	 */
+	importPlaylists?: ImportPlaylist[];
+	/**
+	 * Present with `importPlaylists`. Omitted on legacy complete Session Files
 	 * (treated as `complete` when reading).
 	 */
 	importPlaylistWriteStatus?: ImportPlaylistWriteStatus;
@@ -109,7 +113,7 @@ export function withResolutionHistory(
 /** Drops Import Playlist identity and write status (e.g. before a fresh Catalog Match pass). */
 export function withoutImportPlaylist(session: ImportSession): ImportSession {
 	const {
-		importPlaylist: _dropPlaylist,
+		importPlaylists: _dropPlaylists,
 		importPlaylistWriteStatus: _dropStatus,
 		...rest
 	} = session;
@@ -117,13 +121,13 @@ export function withoutImportPlaylist(session: ImportSession): ImportSession {
 }
 
 /**
- * Returns a Session after Import Playlist create / paced membership step /
- * completion: playlist identity + Match Records (with `alreadyOnSc` where
+ * Returns a Session after Import Playlist part create / paced membership step /
+ * completion: part identities + Match Records (with `alreadyOnSc` where
  * detected) + write status. Preserves library rows and `createdAt`.
  */
 export function withImportPlaylistWrite(
 	session: ImportSession,
-	importPlaylist: ImportPlaylist,
+	importPlaylists: ImportPlaylist[],
 	matchRecords: MatchRecord[],
 	writeStatus: ImportPlaylistWriteStatus,
 	now = new Date()
@@ -132,7 +136,7 @@ export function withImportPlaylistWrite(
 		...session,
 		updatedAt: now.toISOString(),
 		matchRecords,
-		importPlaylist,
+		importPlaylists,
 		importPlaylistWriteStatus: writeStatus
 	};
 }
@@ -142,7 +146,7 @@ export function withImportPlaylistWrite(
  * Legacy files with playlist identity and no status field count as complete.
  */
 export function isImportPlaylistWriteComplete(session: ImportSession): boolean {
-	if (!session.importPlaylist) {
+	if (!session.importPlaylists?.length) {
 		return false;
 	}
 	if (session.importPlaylistWriteStatus === undefined) {

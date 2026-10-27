@@ -131,7 +131,7 @@ describe('Import Session review + Rematch seam', () => {
 
 		const review = await api.getReviewList();
 		const xtal = review.items.find((item) => item.record.libraryTrack.title === 'Xtal')!;
-		const playlistId = (await api.getSession()).session!.importPlaylist!.id;
+		const playlistId = (await api.getSession()).session!.importPlaylists[0]!.id;
 
 		gateway.calls.length = 0;
 		gateway.setLikedTrackIds(['sc-xtal-alt']);
@@ -147,7 +147,7 @@ describe('Import Session review + Rematch seam', () => {
 			}
 		});
 
-		expect(result.session.importPlaylist?.id).toBe(playlistId);
+		expect(result.session.importPlaylists[0]?.id).toBe(playlistId);
 		expect(gateway.calls.filter((name) => name === 'setPlaylistTracks')).toEqual([
 			'setPlaylistTracks'
 		]);
@@ -173,7 +173,25 @@ describe('Import Session review + Rematch seam', () => {
 			expect(diskXtal.soundCloudTrack.id).toBe('sc-xtal-alt');
 			expect(diskXtal.alreadyOnSc).toBe(true);
 		}
-		expect(onDisk?.importPlaylist?.id).toBe(playlistId);
+		expect(onDisk?.importPlaylists?.[0]?.id).toBe(playlistId);
+	});
+
+	it('Rematch rewrites every Import Playlist part when membership is split', async () => {
+		api = createImportSessionApi({ dataDir, gateway, playlistPartSize: 1 });
+		await seedWrittenSession();
+		const parts = (await api.getSession()).session!.importPlaylists;
+		expect(parts).toHaveLength(2);
+
+		const review = await api.getReviewList();
+		const xtal = review.items.find((item) => item.record.libraryTrack.title === 'Xtal')!;
+		const result = await api.rematch({
+			matchIndex: xtal.matchIndex,
+			soundCloudTrack: { id: 'sc-xtal-alt', artist: 'Aphex Twin', title: 'Xtal (alt)' }
+		});
+
+		expect(result.session.importPlaylists).toEqual(parts);
+		expect(gateway.playlistTrackIds(parts[0]!.id)).toEqual(['sc-xtal-alt']);
+		expect(gateway.playlistTrackIds(parts[1]!.id)).toEqual(['sc-arch-a']);
 	});
 
 	it('rejects Rematch when Import Playlist has not been written', async () => {

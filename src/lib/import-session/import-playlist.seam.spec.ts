@@ -72,11 +72,13 @@ describe('Import Session Import Playlist write seam', () => {
 			}
 		});
 
-		expect(result.importPlaylist.title).toBe('VK import 2026-09-14');
-		expect(result.importPlaylist.id).toBeTruthy();
+		expect(result.importPlaylists).toHaveLength(1);
+		const playlist = result.importPlaylists[0]!;
+		expect(playlist.title).toBe('VK import 2026-09-14');
+		expect(playlist.id).toBeTruthy();
 		expect(result.writtenCount).toBe(2);
 		expect(result.alreadyOnScCount).toBe(1);
-		expect(result.session.importPlaylist).toEqual(result.importPlaylist);
+		expect(result.session.importPlaylists).toEqual(result.importPlaylists);
 
 		expect(gateway.calls.filter((name) => name === 'createPlaylist')).toEqual([
 			'createPlaylist'
@@ -84,19 +86,17 @@ describe('Import Session Import Playlist write seam', () => {
 		expect(gateway.calls.filter((name) => name === 'listLikedTrackIds')).toEqual([
 			'listLikedTrackIds'
 		]);
-		expect(gateway.calls.filter((name) => name === 'setPlaylistTracks')).toHaveLength(2);
-		expect(gateway.playlistTrackIds(result.importPlaylist.id)).toEqual([
+		// Both tracks fit one batch → one membership PUT.
+		expect(gateway.calls.filter((name) => name === 'setPlaylistTracks')).toHaveLength(1);
+		expect(gateway.playlistTrackIds(playlist.id)).toEqual([
 			'sc-xtal',
 			'sc-arch-a'
 		]);
 
-		expect(progress).toEqual([
-			{ completed: 1, total: 2 },
-			{ completed: 2, total: 2 }
-		]);
+		expect(progress).toEqual([{ completed: 2, total: 2 }]);
 
 		const onDisk = await createSessionFileStore(dataDir).read();
-		expect(onDisk?.importPlaylist).toEqual(result.importPlaylist);
+		expect(onDisk?.importPlaylists).toEqual(result.importPlaylists);
 
 		const xtal = onDisk?.matchRecords.find((r) => r.libraryTrack.title === 'Xtal');
 		expect(xtal?.classification).toBe('auto');
@@ -149,11 +149,10 @@ describe('Import Session Import Playlist write seam', () => {
 			now: new Date('2026-09-15T12:00:00.000Z')
 		});
 
-		expect(second.importPlaylist.id).toBe(first.importPlaylist.id);
-		expect(second.importPlaylist.title).toBe(first.importPlaylist.title);
+		expect(second.importPlaylists).toEqual(first.importPlaylists);
 		expect(second.session.importPlaylistWriteStatus).toBe('complete');
 		expect(gateway.calls.filter((name) => name === 'createPlaylist')).toHaveLength(1);
-		expect(gateway.playlistTrackIds(first.importPlaylist.id)).toEqual([
+		expect(gateway.playlistTrackIds(first.importPlaylists[0]!.id)).toEqual([
 			'sc-xtal',
 			'sc-arch-a'
 		]);
@@ -167,6 +166,7 @@ describe('Import Session Import Playlist write seam', () => {
 		await expect(
 			api.writeImportPlaylist({
 				paceMs: 0,
+				batchSize: 1,
 				now: new Date('2026-09-14T12:00:00.000Z'),
 				signal: controller.signal,
 				onProgress: () => {
@@ -179,7 +179,7 @@ describe('Import Session Import Playlist write seam', () => {
 		).rejects.toMatchObject({ name: 'AbortError' });
 
 		const mid = await createSessionFileStore(dataDir).read();
-		expect(mid?.importPlaylist?.id).toBeTruthy();
+		expect(mid?.importPlaylists?.[0]?.id).toBeTruthy();
 		expect(mid?.importPlaylistWriteStatus).toBe('in_progress');
 		expect(gateway.calls.filter((name) => name === 'createPlaylist')).toHaveLength(1);
 
@@ -187,12 +187,75 @@ describe('Import Session Import Playlist write seam', () => {
 			paceMs: 0,
 			now: new Date('2026-09-14T12:00:00.000Z')
 		});
-		expect(resumed.importPlaylist.id).toBe(mid!.importPlaylist!.id);
+		expect(resumed.importPlaylists).toEqual(mid!.importPlaylists);
 		expect(resumed.session.importPlaylistWriteStatus).toBe('complete');
 		expect(gateway.calls.filter((name) => name === 'createPlaylist')).toHaveLength(1);
-		expect(gateway.playlistTrackIds(resumed.importPlaylist.id)).toEqual([
+		expect(gateway.playlistTrackIds(resumed.importPlaylists[0]!.id)).toEqual([
 			'sc-xtal',
 			'sc-arch-a'
 		]);
+	});
+
+	it('splits membership into titled parts when bound tracks exceed the part size', async () => {
+		api = createImportSessionApi({ dataDir, gateway, playlistPartSize: 1 });
+		await seedBoundMatches();
+
+		const progress: number[] = [];
+		const result = await api.writeImportPlaylist({
+			paceMs: 0,
+			now: new Date('2026-09-14T12:00:00.000Z'),
+			onProgress: (event) => progress.push(event.completed)
+		});
+
+		expect(result.importPlaylists.map((part) => part.title)).toEqual([
+			'VK import 2026-09-14',
+			'VK import 2026-09-14 (part 2)'
+		]);
+		expect(gateway.playlistTrackIds(result.importPlaylists[0]!.id)).toEqual(['sc-xtal']);
+		expect(gateway.playlistTrackIds(result.importPlaylists[1]!.id)).toEqual(['sc-arch-a']);
+		expect(progress).toEqual([1, 2]);
+		expect(result.session.importPlaylistWriteStatus).toBe('complete');
+	});
+
+	it('writes each SoundCloud Track once when two library rows bind to it', async () => {
+		await api.ingestLibrary({
+			format: 'json',
+			content: JSON.stringify([
+				{ artist: 'Aphex Twin', title: 'Xtal' },
+				{ artist: 'Aphex Twin', title: 'Xtal' }
+			])
+		});
+		gateway.setCatalog([{ id: 'sc-xtal', artist: 'Aphex Twin', title: 'Xtal' }]);
+		gateway.setLikedTrackIds(['sc-xtal']);
+		await api.runCatalogMatch();
+
+		const result = await api.writeImportPlaylist({ paceMs: 0 });
+
+		expect(result.writtenCount).toBe(1);
+		expect(result.alreadyOnScCount).toBe(1);
+		expect(gateway.playlistTrackIds(result.importPlaylists[0]!.id)).toEqual(['sc-xtal']);
+	});
+
+	it('resumes a legacy single-playlist Session File as part 1 and adds the overflow part', async () => {
+		api = createImportSessionApi({ dataDir, gateway, playlistPartSize: 1 });
+		await seedBoundMatches();
+		const legacy = await gateway.createPlaylist('VK import 2026-09-14');
+		const store = createSessionFileStore(dataDir);
+		const { importPlaylists: _parts, ...rest } = (await store.read())!;
+		await store.write({
+			...rest,
+			importPlaylist: legacy,
+			importPlaylistWriteStatus: 'in_progress'
+		} as unknown as Parameters<typeof store.write>[0]);
+
+		const result = await api.writeImportPlaylist({
+			paceMs: 0,
+			now: new Date('2026-09-15T12:00:00.000Z')
+		});
+
+		expect(result.importPlaylists[0]).toEqual(legacy);
+		expect(result.importPlaylists[1]!.title).toBe('VK import 2026-09-14 (part 2)');
+		expect(gateway.playlistTrackIds(legacy.id)).toEqual(['sc-xtal']);
+		expect(gateway.playlistTrackIds(result.importPlaylists[1]!.id)).toEqual(['sc-arch-a']);
 	});
 });

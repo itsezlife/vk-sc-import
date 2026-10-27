@@ -7,11 +7,13 @@
  * SoundCloudGateway and classifies with the pure strict Auto-Match policy;
  * Match Resolution mutates Ambiguous/Unresolved Match Records (pick / search-
  * bind / skip) and persists them. Import Playlist write creates one dated
- * playlist, adds Auto + Accepted tracks (not likes-as-destination), flags
- * `alreadyOnSc` from likes presence, and stores playlist identity on the
- * Session File. Rematch replaces a bound SoundCloud Track, rebuilds playlist
- * membership via `setPlaylistTracks` (remove/add equivalent), refreshes
- * `alreadyOnSc`, and persists — so mistakes are fixed without soundcloud.com.
+ * playlist — split into parts of at most SOUNDCLOUD_PLAYLIST_TRACK_LIMIT
+ * tracks — adds de-duplicated Auto + Accepted tracks (not likes-as-
+ * destination), flags `alreadyOnSc` from likes presence, and stores part
+ * identities on the Session File. Rematch replaces a bound SoundCloud Track,
+ * rebuilds part membership via `setPlaylistTracks` (remove/add equivalent),
+ * refreshes `alreadyOnSc`, and persists — so mistakes are fixed without
+ * soundcloud.com.
  *
  * Long Catalog Match / playlist write runs accept `AbortSignal` and default
  * pacing suitable for 1000+ tracks. After each completed library row or
@@ -19,8 +21,8 @@
  * cancel keeps valid progress. Incomplete Catalog Match (`matchRecords.length`
  * &lt; library) resumes on the next call; a complete prior pass is replaced.
  * Incomplete playlist write (`importPlaylistWriteStatus: 'in_progress'`)
- * reuses the same playlist id; a complete write may be re-run idempotently
- * (same playlist, membership PUT again).
+ * reuses the existing part ids; a complete write may be re-run idempotently
+ * (same parts, membership PUT again).
  *
  * Invariants:
  * - An ingest with zero valid Library Tracks does not create or replace a
@@ -34,7 +36,7 @@
  *   array; they only mutate Ambiguous or Unresolved rows.
  * - In-app catalog search requires a connected SoundCloudGateway identity.
  * - `writeImportPlaylist` requires connected gateway and bound Auto/Accepted
- *   Match Records; paced `setPlaylistTracks` calls keep large adds
+ *   Match Records; paced, batched `setPlaylistTracks` calls keep large adds
  *   rate-limit-friendly.
  * - `getReviewList` returns bound Auto/Accepted rows only after Import Playlist
  *   write is **complete** (empty while in progress or before write).
@@ -43,7 +45,7 @@
  * - Export methods require Match Records; they do not mutate the Session File.
  */
 
-import { importPlaylistTitle } from './import-playlist-title';
+import { importPlaylistPartTitle, importPlaylistTitle } from './import-playlist-title';
 import {
 	createImportSession,
 	isImportPlaylistWriteComplete,
@@ -84,7 +86,10 @@ import { classifyMatch, libraryTrackQuery, scoreSoundCloudCandidate } from './ma
 import { sleep, throwIfAborted } from './run-abort';
 import { createSessionFileStore } from './session-file-store';
 import { ingestSourceLibrary, type SourceLibraryFormat } from './source-library-ingest';
-import type { ImportPlaylist } from '$lib/soundcloud/import-playlist';
+import {
+	SOUNDCLOUD_PLAYLIST_TRACK_LIMIT,
+	type ImportPlaylist
+} from '$lib/soundcloud/import-playlist';
 import type { SoundCloudGateway } from '$lib/soundcloud/soundcloud-gateway';
 import type { SoundCloudTrack } from '$lib/soundcloud/soundcloud-track';
 
@@ -96,6 +101,11 @@ const SAMPLE_SIZE = 5;
 const DEFAULT_MATCH_PACE_MS = 150;
 /** Default pause between paced playlist membership updates (ms). */
 const DEFAULT_PLAYLIST_PACE_MS = 150;
+/**
+ * Tracks added per membership PUT. Each PUT resends the part's full list, so
+ * one-per-track would be ~n²/2 track refs for a 500-track part.
+ */
+const DEFAULT_PLAYLIST_BATCH_SIZE = 50;
 
 /** UI / HTTP summary of a loaded Import Session — not the Session File. */
 export type ImportSessionSummary = {
@@ -108,8 +118,11 @@ export type ImportSessionSummary = {
 	 * Catalog Match pass finished (or none started).
 	 */
 	matchedCount: number;
-	/** Null until Import Playlist create succeeded (may still be in progress). */
-	importPlaylist: ImportPlaylist | null;
+	/**
+	 * Import Playlist parts in membership order; empty until the first part's
+	 * create succeeded (write may still be in progress).
+	 */
+	importPlaylists: ImportPlaylist[];
 	/**
 	 * Null when no playlist identity. Legacy complete Session Files surface as
 	 * `complete` even without a stored status field.
@@ -220,6 +233,8 @@ export type WriteImportPlaylistOptions = {
 	 * is basic rate-limit pacing.
 	 */
 	paceMs?: number;
+	/** Tracks added per `setPlaylistTracks` call (progress granularity). */
+	batchSize?: number;
 	/** Clock for dated playlist title (and Session File `updatedAt`). */
 	now?: Date;
 	/** When aborted, playlist identity + completed membership steps stay on disk. */
@@ -228,7 +243,8 @@ export type WriteImportPlaylistOptions = {
 
 export type WriteImportPlaylistResponse = {
 	session: ImportSessionSummary;
-	importPlaylist: ImportPlaylist;
+	importPlaylists: ImportPlaylist[];
+	/** Distinct SoundCloud Tracks written across all parts. */
 	writtenCount: number;
 	alreadyOnScCount: number;
 };
@@ -312,6 +328,8 @@ export type CreateImportSessionApiOptions = {
 	 * write/rematch throw if missing or disconnected.
 	 */
 	gateway?: SoundCloudGateway;
+	/** Max tracks per Import Playlist part; tests shrink it to exercise splits. */
+	playlistPartSize?: number;
 };
 
 /**
@@ -322,6 +340,7 @@ export type CreateImportSessionApiOptions = {
 export function createImportSessionApi(options: CreateImportSessionApiOptions): ImportSessionApi {
 	const store = createSessionFileStore(options.dataDir);
 	const gateway = options.gateway;
+	const partSize = options.playlistPartSize ?? SOUNDCLOUD_PLAYLIST_TRACK_LIMIT;
 
 	return {
 		async ingestLibrary(request) {
@@ -495,7 +514,7 @@ export function createImportSessionApi(options: CreateImportSessionApiOptions): 
 				}
 				// A bound row may already be a member of the written Import Playlist;
 				// reopening it would leave that membership orphaned. Rematch owns that.
-				if (current.classification === 'accepted' && session.importPlaylist) {
+				if (current.classification === 'accepted' && session.importPlaylists) {
 					throw new Error('Import Playlist already written — use Rematch to change this track');
 				}
 				nextRecord = reopenMatchRecord(current, entry.record);
@@ -520,7 +539,7 @@ export function createImportSessionApi(options: CreateImportSessionApiOptions): 
 				items: session
 					? buildDecidedList(session.matchRecords, session.resolutionHistory)
 					: [],
-				acceptedLocked: Boolean(session?.importPlaylist)
+				acceptedLocked: Boolean(session?.importPlaylists)
 			};
 		},
 
@@ -537,7 +556,7 @@ export function createImportSessionApi(options: CreateImportSessionApiOptions): 
 			) {
 				throw new Error(`Match Record at index ${matchIndex} is not a decided row to reopen`);
 			}
-			if (current.classification === 'accepted' && session.importPlaylist) {
+			if (current.classification === 'accepted' && session.importPlaylists) {
 				throw new Error('Import Playlist already written — use Rematch to change this track');
 			}
 
@@ -598,97 +617,84 @@ export function createImportSessionApi(options: CreateImportSessionApiOptions): 
 			const signal = writeOptions?.signal;
 			throwIfAborted(signal);
 
-			const boundIndexes: number[] = [];
-			for (let index = 0; index < session.matchRecords.length; index += 1) {
-				const record = session.matchRecords[index]!;
-				if (record.classification === 'auto' || record.classification === 'accepted') {
-					boundIndexes.push(index);
-				}
-			}
-			if (boundIndexes.length === 0) {
-				throw new Error('Import Playlist write requires bound Auto or Accepted Match Records');
-			}
-
 			const now = writeOptions?.now ?? new Date();
 			const paceMs = writeOptions?.paceMs ?? DEFAULT_PLAYLIST_PACE_MS;
+			const batchSize = writeOptions?.batchSize ?? DEFAULT_PLAYLIST_BATCH_SIZE;
 			const likedIds = new Set(await activeGateway.listLikedTrackIds());
 
-			let importPlaylist = session.importPlaylist;
-			let working = session;
-			const matchRecords = session.matchRecords.slice();
-
-			if (!importPlaylist) {
-				throwIfAborted(signal);
-				const title = importPlaylistTitle(now);
-				importPlaylist = await activeGateway.createPlaylist(title);
-				working = withImportPlaylistWrite(
-					working,
-					importPlaylist,
-					matchRecords,
-					'in_progress',
-					now
-				);
-				await store.write(working);
-			} else if (isImportPlaylistWriteComplete(session)) {
-				// Idempotent re-run: reuse playlist identity, rewrite membership.
-				working = withImportPlaylistWrite(
-					working,
-					importPlaylist,
-					matchRecords,
-					'in_progress',
-					now
-				);
-				await store.write(working);
-			}
-
-			const playlist = importPlaylist;
-
-			const accumulatedIds: string[] = [];
-			let alreadyOnScCount = 0;
-			const total = boundIndexes.length;
-
-			for (let step = 0; step < boundIndexes.length; step += 1) {
-				throwIfAborted(signal);
-
-				const matchIndex = boundIndexes[step]!;
-				const record = matchRecords[matchIndex]!;
+			const libraryTrackById = new Map<string, LibraryTrack>();
+			const matchRecords = session.matchRecords.map((record) => {
 				if (record.classification !== 'auto' && record.classification !== 'accepted') {
-					continue;
+					return record;
 				}
-
 				const trackId = record.soundCloudTrack.id;
-				const alreadyOnSc = likedIds.has(trackId);
-				matchRecords[matchIndex] = {
-					...record,
-					...(alreadyOnSc ? { alreadyOnSc: true as const } : {})
-				};
-				if (alreadyOnSc) {
-					alreadyOnScCount += 1;
+				if (!libraryTrackById.has(trackId)) {
+					libraryTrackById.set(trackId, record.libraryTrack);
+				}
+				return likedIds.has(trackId) ? { ...record, alreadyOnSc: true as const } : record;
+			});
+			const trackIds = boundPlaylistTrackIds(matchRecords);
+			if (trackIds.length === 0) {
+				throw new Error('Import Playlist write requires bound Auto or Accepted Match Records');
+			}
+			const alreadyOnScCount = trackIds.filter((trackId) => likedIds.has(trackId)).length;
+			const partTrackIds = chunk(trackIds, partSize);
+
+			const parts = session.importPlaylists?.slice() ?? [];
+			let working = session;
+			if (parts.length > 0) {
+				// Resume or idempotent re-run: reuse part identities, rewrite membership.
+				working = withImportPlaylistWrite(working, parts.slice(), matchRecords, 'in_progress', now);
+				await store.write(working);
+			}
+
+			const total = trackIds.length;
+			for (let partIndex = 0; partIndex < partTrackIds.length; partIndex += 1) {
+				throwIfAborted(signal);
+
+				if (!parts[partIndex]) {
+					const baseTitle = parts[0]?.title ?? importPlaylistTitle(now);
+					parts.push(
+						await activeGateway.createPlaylist(importPlaylistPartTitle(baseTitle, partIndex + 1))
+					);
+					working = withImportPlaylistWrite(working, parts.slice(), matchRecords, 'in_progress', now);
+					await store.write(working);
 				}
 
-				accumulatedIds.push(trackId);
-				await activeGateway.setPlaylistTracks(playlist.id, accumulatedIds);
+				const part = parts[partIndex]!;
+				const ids = partTrackIds[partIndex]!;
+				for (let start = 0; start < ids.length; start += batchSize) {
+					throwIfAborted(signal);
 
-				const writeStatus: ImportPlaylistWriteStatus =
-					step === boundIndexes.length - 1 ? 'complete' : 'in_progress';
-				working = withImportPlaylistWrite(working, playlist, matchRecords, writeStatus, now);
-				await store.write(working);
+					const end = Math.min(start + batchSize, ids.length);
+					await activeGateway.setPlaylistTracks(part.id, ids.slice(0, end));
 
-				writeOptions?.onProgress?.({
-					completed: step + 1,
-					total,
-					current: record.libraryTrack
-				});
+					writeOptions?.onProgress?.({
+						completed: partIndex * partSize + end,
+						total,
+						current: libraryTrackById.get(ids[end - 1]!)!
+					});
 
-				if (paceMs > 0 && step < boundIndexes.length - 1) {
-					await sleep(paceMs, signal);
+					const isLastCall = partIndex === partTrackIds.length - 1 && end === ids.length;
+					if (paceMs > 0 && !isLastCall) {
+						await sleep(paceMs, signal);
+					}
 				}
 			}
+
+			// Parts left over from a larger earlier write keep their identity but
+			// must not keep stale membership.
+			for (const extra of parts.slice(partTrackIds.length)) {
+				await activeGateway.setPlaylistTracks(extra.id, []);
+			}
+
+			working = withImportPlaylistWrite(working, parts, matchRecords, 'complete', now);
+			await store.write(working);
 
 			return {
 				session: toSummary(working),
-				importPlaylist: playlist,
-				writtenCount: accumulatedIds.length,
+				importPlaylists: parts,
+				writtenCount: trackIds.length,
 				alreadyOnScCount
 			};
 		},
@@ -716,7 +722,7 @@ export function createImportSessionApi(options: CreateImportSessionApiOptions): 
 			await requireConnected(activeGateway, 'Rematch');
 
 			const session = await requireSessionWithMatches(store);
-			if (!isImportPlaylistWriteComplete(session) || !session.importPlaylist) {
+			if (!isImportPlaylistWriteComplete(session) || !session.importPlaylists) {
 				throw new Error(
 					'Rematch requires a completed Import Playlist write for this Import Session'
 				);
@@ -729,10 +735,13 @@ export function createImportSessionApi(options: CreateImportSessionApiOptions): 
 
 			const matchRecords = session.matchRecords.slice();
 			matchRecords[request.matchIndex] = nextRecord;
-			const playlistTrackIds = boundPlaylistTrackIds(matchRecords);
-			await activeGateway.setPlaylistTracks(session.importPlaylist.id, playlistTrackIds);
+			const parts = await replaceImportPlaylistMembership(
+				activeGateway,
+				session.importPlaylists,
+				chunk(boundPlaylistTrackIds(matchRecords), partSize)
+			);
 
-			const next = withMatchRecords(session, matchRecords);
+			const next = withImportPlaylistWrite(session, parts, matchRecords, 'complete');
 			await store.write(next);
 
 			const matchBuckets = summarizeMatchBuckets(matchRecords);
@@ -773,7 +782,7 @@ function toSummary(session: ImportSession): ImportSessionSummary {
 		session.matchRecords.length > 0 ? summarizeMatchBuckets(session.matchRecords) : null;
 
 	let importPlaylistWriteStatus: ImportPlaylistWriteStatus | null = null;
-	if (session.importPlaylist) {
+	if (session.importPlaylists) {
 		importPlaylistWriteStatus = isImportPlaylistWriteComplete(session)
 			? 'complete'
 			: (session.importPlaylistWriteStatus ?? 'in_progress');
@@ -784,9 +793,41 @@ function toSummary(session: ImportSession): ImportSessionSummary {
 		sample: session.libraryTracks.slice(0, SAMPLE_SIZE),
 		matchBuckets,
 		matchedCount: session.matchRecords.length,
-		importPlaylist: session.importPlaylist ?? null,
+		importPlaylists: session.importPlaylists ?? [],
 		importPlaylistWriteStatus
 	};
+}
+
+/**
+ * Rebuilds every part's membership in one PUT each (Rematch). Creates a part
+ * when the bound set outgrew the existing ones; empties surplus parts.
+ */
+async function replaceImportPlaylistMembership(
+	gateway: SoundCloudGateway,
+	parts: ImportPlaylist[],
+	partTrackIds: string[][]
+): Promise<ImportPlaylist[]> {
+	const next = parts.slice();
+	for (let partIndex = 0; partIndex < partTrackIds.length; partIndex += 1) {
+		if (!next[partIndex]) {
+			next.push(
+				await gateway.createPlaylist(importPlaylistPartTitle(next[0]!.title, partIndex + 1))
+			);
+		}
+		await gateway.setPlaylistTracks(next[partIndex]!.id, partTrackIds[partIndex]!);
+	}
+	for (const extra of next.slice(partTrackIds.length)) {
+		await gateway.setPlaylistTracks(extra.id, []);
+	}
+	return next;
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+	const chunks: T[][] = [];
+	for (let start = 0; start < items.length; start += size) {
+		chunks.push(items.slice(start, start + size));
+	}
+	return chunks;
 }
 
 function requireGateway(gateway: SoundCloudGateway | undefined): SoundCloudGateway {

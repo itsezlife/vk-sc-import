@@ -97,7 +97,7 @@
 					sessionSummary.matchBuckets.accepted,
 					sessionSummary.matchBuckets.ambiguous,
 					sessionSummary.matchBuckets.unresolved,
-					sessionSummary.importPlaylist?.id ?? '',
+					sessionSummary.importPlaylists[0]?.id ?? '',
 					sessionSummary.importPlaylistWriteStatus ?? ''
 				].join(':')
 			: null
@@ -108,19 +108,17 @@
 			: 0
 	);
 	const playlistWriteIncomplete = $derived(
-		sessionSummary?.importPlaylist != null &&
-			sessionSummary.importPlaylistWriteStatus === 'in_progress'
+		sessionSummary?.importPlaylistWriteStatus === 'in_progress'
 	);
 	const playlistWriteComplete = $derived(
-		sessionSummary?.importPlaylist != null &&
-			sessionSummary.importPlaylistWriteStatus === 'complete'
+		sessionSummary?.importPlaylistWriteStatus === 'complete'
 	);
 	const canWritePlaylist = $derived(
 		boundMatchCount > 0 &&
 			!matchBusy &&
 			sessionSummary != null &&
 			sessionSummary.matchedCount === sessionSummary.trackCount &&
-			(sessionSummary.importPlaylist == null || playlistWriteIncomplete)
+			(sessionSummary.importPlaylists.length === 0 || playlistWriteIncomplete)
 	);
 	const matchIncomplete = $derived(
 		sessionSummary != null &&
@@ -131,9 +129,9 @@
 		(sessionSummary?.matchedCount ?? 0) > 0 && !matchBusy && !playlistBusy
 	);
 	const reviewSessionKey = $derived(
-		playlistWriteComplete && sessionSummary?.importPlaylist && sessionSummary.matchBuckets
+		playlistWriteComplete && sessionSummary?.importPlaylists[0] && sessionSummary.matchBuckets
 			? [
-					sessionSummary.importPlaylist.id,
+					sessionSummary.importPlaylists[0].id,
 					sessionSummary.matchBuckets.auto,
 					sessionSummary.matchBuckets.accepted
 				].join(':')
@@ -445,7 +443,7 @@
 						| {
 								type: 'done';
 								session: ImportSessionSummary;
-								importPlaylist: { id: string; title: string; permalinkUrl?: string };
+								importPlaylists: Array<{ id: string; title: string; permalinkUrl?: string }>;
 								writtenCount: number;
 								alreadyOnScCount: number;
 						  }
@@ -466,7 +464,7 @@
 						playlistNotice = {
 							key: 'playlist.done',
 							params: {
-								title: event.importPlaylist.title,
+								title: event.importPlaylists[0]?.title ?? '',
 								written: event.writtenCount,
 								alreadyOnSc: event.alreadyOnScCount
 							}
@@ -956,20 +954,23 @@
 						class="ui-fade-in mt-5 grid gap-3 rounded-lg border border-slate-900/10 bg-white/85 px-3.5 py-3 text-sm text-slate-800"
 						role="status"
 					>
-						{#if playlistWriteComplete && sessionSummary?.importPlaylist}
+						{#if playlistWriteComplete && sessionSummary?.importPlaylists[0]}
+							{@const parts = sessionSummary.importPlaylists}
 							<p class="m-0 text-emerald-800">
-								{t('playlist.written', { title: sessionSummary.importPlaylist.title })}
-								{#if sessionSummary.importPlaylist.permalinkUrl}
-									—
-									<a
-										class="text-teal-800 underline"
-										href={sessionSummary.importPlaylist.permalinkUrl}
-										target="_blank"
-										rel="noreferrer"
-									>
-										SoundCloud
-									</a>
-								{/if}
+								{t('playlist.written', { title: parts[0]!.title })}
+								{#each parts as part, index (part.id)}
+									{#if part.permalinkUrl}
+										{index === 0 ? '—' : '·'}
+										<a
+											class="text-teal-800 underline"
+											href={part.permalinkUrl}
+											target="_blank"
+											rel="noreferrer"
+										>
+											{parts.length > 1 ? t('playlist.part', { n: index + 1 }) : 'SoundCloud'}
+										</a>
+									{/if}
+								{/each}
 							</p>
 						{:else if canWritePlaylist}
 							<div class="flex flex-wrap gap-2">

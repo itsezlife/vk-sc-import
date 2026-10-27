@@ -23,7 +23,8 @@ export type SoundCloudMeDto = {
 
 export type SoundCloudTokenResponse = {
 	access_token: string;
-	refresh_token: string;
+	/** May be omitted on refresh — callers keep the previous refresh token. */
+	refresh_token?: string;
 	expires_in: number;
 	scope?: string;
 };
@@ -32,6 +33,8 @@ export type SoundCloudOAuthHttp = {
 	exchangeAuthorizationCode(
 		input: ExchangeAuthorizationCodeInput
 	): Promise<SoundCloudTokenResponse>;
+	/** `grant_type=refresh_token` exchange; throws on non-2xx. */
+	refreshAccessToken(refreshToken: string): Promise<SoundCloudTokenResponse>;
 	fetchMe(accessToken: string): Promise<SoundCloudMeDto>;
 	signOut(accessToken: string): Promise<void>;
 };
@@ -68,6 +71,34 @@ export function createSoundCloudOAuthHttp(config: SoundCloudOAuthConfig): SoundC
 			return (await response.json()) as SoundCloudTokenResponse;
 		},
 
+		async refreshAccessToken(refreshToken) {
+			const body = new URLSearchParams();
+			body.set('grant_type', 'refresh_token');
+			body.set('client_id', config.clientId);
+			body.set('refresh_token', refreshToken);
+			if (config.clientSecret) {
+				body.set('client_secret', config.clientSecret);
+			}
+
+			const response = await fetch(config.tokenUrl, {
+				method: 'POST',
+				headers: {
+					accept: 'application/json; charset=utf-8',
+					'content-type': 'application/x-www-form-urlencoded'
+				},
+				body
+			});
+
+			if (!response.ok) {
+				const text = await response.text().catch(() => '');
+				throw new Error(
+					`SoundCloud token refresh failed (HTTP ${response.status})${text ? `: ${text}` : ''}`
+				);
+			}
+
+			return (await response.json()) as SoundCloudTokenResponse;
+		},
+
 		async fetchMe(accessToken) {
 			const response = await fetch(`${config.apiBaseUrl}/me`, {
 				headers: {
@@ -98,15 +129,23 @@ export function createSoundCloudOAuthHttp(config: SoundCloudOAuthConfig): SoundC
 	};
 }
 
-/** Maps token response + clock into the durable token set shape. */
+/**
+ * Maps token response + clock into the durable token set shape. A refresh
+ * response without `refresh_token` keeps `previousRefreshToken`.
+ */
 export function tokenSetFromResponse(
 	response: SoundCloudTokenResponse,
-	now = new Date()
+	now = new Date(),
+	previousRefreshToken?: string
 ): SoundCloudTokenSet {
+	const refreshToken = response.refresh_token ?? previousRefreshToken;
+	if (!refreshToken) {
+		throw new Error('SoundCloud token response is missing refresh_token');
+	}
 	const expiresAt = new Date(now.getTime() + response.expires_in * 1000).toISOString();
 	return {
 		accessToken: response.access_token,
-		refreshToken: response.refresh_token,
+		refreshToken,
 		expiresAt,
 		...(response.scope !== undefined ? { scope: response.scope } : {})
 	};

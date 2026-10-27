@@ -323,15 +323,16 @@ export function rematchBoundTrack(
 }
 
 /**
- * Ordered SoundCloud Track ids for bound Match Records — Import Playlist
- * membership rebuild after Rematch (Session order, same as write).
+ * Ordered, de-duplicated SoundCloud Track ids for bound Match Records — Import
+ * Playlist membership for write and Rematch (Session order). Two library rows
+ * bound to the same SoundCloud Track land in the playlist once.
  */
 export function boundPlaylistTrackIds(records: MatchRecord[]): string[] {
-	const ids: string[] = [];
+	const ids = new Set<string>();
 	for (const record of records) {
 		if (record.classification === 'auto' || record.classification === 'accepted') {
-			ids.push(record.soundCloudTrack.id);
+			ids.add(record.soundCloudTrack.id);
 		}
 	}
-	return ids;
+	return [...ids];
 }

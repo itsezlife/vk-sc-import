@@ -9,7 +9,8 @@
  * missing `matchRecords` reads as `[]`. Import Playlist and `alreadyOnSc` are
  * optional for sessions written before Import Playlist write.
  * `importPlaylistWriteStatus` is optional; a legacy Session File with
- * `importPlaylist` and no status reads as a completed write.
+ * `importPlaylist` and no status reads as a completed write. Legacy single
+ * `importPlaylist` reads as `importPlaylists: [it]`; writes use the new key.
  */
 
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
@@ -130,13 +131,26 @@ function parseSessionFile(raw: string): ImportSession | null {
 		}
 	}
 
-	let importPlaylist: ImportPlaylist | undefined;
-	if (record.importPlaylist !== undefined) {
+	let importPlaylists: ImportPlaylist[] | undefined;
+	if (record.importPlaylists !== undefined) {
+		if (!Array.isArray(record.importPlaylists) || record.importPlaylists.length === 0) {
+			return null;
+		}
+		importPlaylists = [];
+		for (const row of record.importPlaylists) {
+			const parsed = parseImportPlaylist(row);
+			if (parsed === null) {
+				return null;
+			}
+			importPlaylists.push(parsed);
+		}
+	} else if (record.importPlaylist !== undefined) {
+		// Legacy single-playlist Session File: that playlist is part 1.
 		const parsed = parseImportPlaylist(record.importPlaylist);
 		if (parsed === null) {
 			return null;
 		}
-		importPlaylist = parsed;
+		importPlaylists = [parsed];
 	}
 
 	let importPlaylistWriteStatus: ImportPlaylistWriteStatus | undefined;
@@ -158,7 +172,7 @@ function parseSessionFile(raw: string): ImportSession | null {
 		updatedAt: record.updatedAt,
 		libraryTracks,
 		matchRecords,
-		...(importPlaylist ? { importPlaylist } : {}),
+		...(importPlaylists ? { importPlaylists } : {}),
 		...(importPlaylistWriteStatus ? { importPlaylistWriteStatus } : {}),
 		...(resolutionHistory.length > 0 ? { resolutionHistory } : {})
 	};

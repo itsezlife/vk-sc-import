@@ -19,6 +19,7 @@ describe('SoundCloud auth API seam', () => {
 	let fetchMeSpy: SoundCloudOAuthHttp['fetchMe'];
 	let signOutSpy: SoundCloudOAuthHttp['signOut'];
 	let exchangeMock: ReturnType<typeof vi.fn>;
+	let refreshMock: ReturnType<typeof vi.fn>;
 	let fetchMeMock: ReturnType<typeof vi.fn>;
 	let signOutMock: ReturnType<typeof vi.fn>;
 
@@ -39,6 +40,11 @@ describe('SoundCloud auth API seam', () => {
 			expires_in: 3600,
 			scope: '*'
 		}));
+		refreshMock = vi.fn(async () => ({
+			access_token: 'refreshed-access-token',
+			refresh_token: 'rotated-refresh-token',
+			expires_in: 3600
+		}));
 		fetchMeMock = vi.fn(async () => ({
 			id: 99,
 			username: 'demo-user',
@@ -52,6 +58,7 @@ describe('SoundCloud auth API seam', () => {
 
 		oauthHttp = {
 			exchangeAuthorizationCode: exchangeSpy,
+			refreshAccessToken: refreshMock as SoundCloudOAuthHttp['refreshAccessToken'],
 			fetchMe: fetchMeSpy,
 			signOut: signOutSpy
 		};
@@ -154,18 +161,59 @@ describe('SoundCloud auth API seam', () => {
 		await expect(api.getStatus()).resolves.toEqual({ connected: false });
 	});
 
-	it('getStatus returns disconnected when access token is expired', async () => {
+	async function connectThenApiAt(laterIso: string) {
 		const api = createApi(() => new Date('2026-06-01T12:00:00.000Z'));
 		const { authorizeUrl } = await api.startLogin();
 		const state = new URL(authorizeUrl).searchParams.get('state')!;
 		await api.completeLogin({ code: 'auth-code', state });
 
-		const later = createSoundCloudAuthApi({
+		return createSoundCloudAuthApi({
 			config,
 			tokenStore: createSoundCloudAuthTokenStore(dataDir),
 			oauthHttp,
-			now: () => new Date('2026-06-01T14:00:00.000Z')
+			now: () => new Date(laterIso)
 		});
+	}
+
+	it('refreshes an expired access token and persists the rotated token set', async () => {
+		const later = await connectThenApiAt('2026-06-01T14:00:00.000Z');
+
+		await expect(later.getAccessToken()).resolves.toBe('refreshed-access-token');
+		await expect(later.getStatus()).resolves.toMatchObject({ connected: true });
+
+		expect(refreshMock).toHaveBeenCalledOnce();
+		expect(refreshMock).toHaveBeenCalledWith('refresh-token');
+		const file = await createSoundCloudAuthTokenStore(dataDir).read();
+		expect(file.tokens).toEqual({
+			accessToken: 'refreshed-access-token',
+			refreshToken: 'rotated-refresh-token',
+			expiresAt: '2026-06-01T15:00:00.000Z'
+		});
+	});
+
+	it('refreshes shortly before expiry and shares one refresh across concurrent callers', async () => {
+		const later = await connectThenApiAt('2026-06-01T12:59:30.000Z');
+
+		const tokens = await Promise.all([later.getAccessToken(), later.getAccessToken()]);
+
+		expect(tokens).toEqual(['refreshed-access-token', 'refreshed-access-token']);
+		expect(refreshMock).toHaveBeenCalledOnce();
+	});
+
+	it('keeps the previous refresh token when the refresh response omits one', async () => {
+		refreshMock.mockResolvedValueOnce({ access_token: 'refreshed-access-token', expires_in: 3600 });
+		const later = await connectThenApiAt('2026-06-01T14:00:00.000Z');
+
+		await later.getAccessToken();
+
+		const file = await createSoundCloudAuthTokenStore(dataDir).read();
+		expect(file.tokens?.refreshToken).toBe('refresh-token');
+	});
+
+	it('getStatus returns disconnected when the expired token cannot be refreshed', async () => {
+		refreshMock.mockRejectedValueOnce(new Error('invalid_grant'));
+		const later = await connectThenApiAt('2026-06-01T14:00:00.000Z');
+
 		await expect(later.getStatus()).resolves.toEqual({ connected: false });
 	});
 
